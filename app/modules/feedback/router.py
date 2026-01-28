@@ -10,26 +10,35 @@ from app.modules.feedback.service import (
     approve,
     reject,
     get_by_reflection_for_client,
+    get_by_reflection_for_therapist,  # ✅ novo
 )
 
 router = APIRouter()
 
 
-def _ensure_role(user, role: str):
-    if getattr(user, "role", None) != role:
-        raise HTTPException(status_code=403, detail="Forbidden")
+def require_role(role: str):
+    def _dep(user=Depends(get_current_user)):
+        if getattr(user, "role", None) != role:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        return user
+    return _dep
 
 
 @router.post("/generate/{reflection_id}", response_model=FeedbackOut)
-def generate(reflection_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    # MVP: apenas terapeuta gera (ou você pode deixar interno depois)
-    _ensure_role(user, "therapist")
+def generate(
+    reflection_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("therapist")),
+):
+    # MVP: apenas terapeuta gera
     return generate_for_reflection(db, reflection_id=reflection_id)
 
 
 @router.get("/pending", response_model=list[FeedbackOut])
-def pending(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    _ensure_role(user, "therapist")
+def pending(
+    db: Session = Depends(get_db),
+    user=Depends(require_role("therapist")),
+):
     return list_pending(db)
 
 
@@ -38,9 +47,8 @@ def approve_route(
     feedback_id: int,
     payload: FeedbackApproveIn,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_role("therapist")),
 ):
-    _ensure_role(user, "therapist")
     return approve(db, feedback_id=feedback_id, therapist_id=user.id, update_data=payload)
 
 
@@ -49,14 +57,26 @@ def reject_route(
     feedback_id: int,
     payload: FeedbackRejectIn,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_role("therapist")),
 ):
-    _ensure_role(user, "therapist")
     return reject(db, feedback_id=feedback_id, therapist_id=user.id, notes=payload.therapist_notes)
 
 
+# ✅ Novo: terapeuta buscar feedback por reflexão (qualquer status)
+@router.get("/therapist/by-reflection/{reflection_id}", response_model=FeedbackOut)
+def therapist_by_reflection(
+    reflection_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("therapist")),
+):
+    return get_by_reflection_for_therapist(db, reflection_id=reflection_id)
+
+
+# Mantém: client-only (só approved e só se a reflexão é dele)
 @router.get("/by-reflection/{reflection_id}", response_model=FeedbackOut)
-def by_reflection(reflection_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    # cliente só vê se approved e se a reflexão é dele
-    _ensure_role(user, "client")
+def client_by_reflection(
+    reflection_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("client")),
+):
     return get_by_reflection_for_client(db, reflection_id=reflection_id, client_id=user.id)
