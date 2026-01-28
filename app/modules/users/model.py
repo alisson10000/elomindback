@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Enum
+from sqlalchemy import Column, Integer, String, Enum, Boolean
 from app.db.base import Base
 
 class User(Base):
@@ -9,3 +9,4 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     name = Column(String(255), nullable=False)
     role = Column(Enum("client", "therapist", name="user_role"), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True) 

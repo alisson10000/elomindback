@@ -1,16 +1,38 @@
 from fastapi import FastAPI
-from app.db.base import Base  # registra models
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.db.base import Base
 from app.db.session import engine
 
 from app.modules.auth.router import router as auth_router
 from app.modules.reflections.router import router as reflections_router
+from app.modules.feedback.router import router as feedback_router
+from app.modules.users.router import router as users_router
 
-Base.metadata.create_all(bind=engine)
+app = FastAPI(
+    title="EloMind API",
+    version="0.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
 
-app = FastAPI(title="EloMind API", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # DEV
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+def on_startup():
+    Base.metadata.create_all(bind=engine)
+    print("✅ Banco de dados inicializado")
 
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 app.include_router(reflections_router, prefix="/reflections", tags=["Reflections"])
+app.include_router(feedback_router, prefix="/feedback", tags=["Feedback"])
+app.include_router(users_router)
 
 @app.get("/health")
 def health():

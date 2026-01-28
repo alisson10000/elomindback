@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Text, ForeignKey
+from sqlalchemy import Column, Integer, Text, ForeignKey, DateTime, func
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 
@@ -12,5 +12,7 @@ class Reflection(Base):
     what_learned = Column(Text, nullable=False)
     positive_point = Column(Text, nullable=False)
     resistance_or_disagreement = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     client = relationship("User")
