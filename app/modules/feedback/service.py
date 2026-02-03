@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
+from typing import Iterable
+
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.modules.feedback.model import Feedback
 from app.modules.reflections.model import Reflection
@@ -14,6 +16,9 @@ STATUS_APPROVED = "approved"
 STATUS_REJECTED = "rejected"
 
 
+# ======================
+# Internal helpers
+# ======================
 def _get_reflection_or_404(db: Session, reflection_id: int) -> Reflection:
     reflection = (
         db.query(Reflection)
@@ -26,12 +31,30 @@ def _get_reflection_or_404(db: Session, reflection_id: int) -> Reflection:
 
 
 def _get_feedback_or_404(db: Session, feedback_id: int) -> Feedback:
-    fb = db.query(Feedback).filter(Feedback.id == feedback_id).one_or_none()
+    fb = (
+        db.query(Feedback)
+        .filter(Feedback.id == feedback_id)
+        .one_or_none()
+    )
     if not fb:
         raise HTTPException(status_code=404, detail="Feedback not found")
     return fb
 
 
+def _parse_statuses(statuses: list[str] | None) -> list[str]:
+    """
+    Normaliza lista de statuses.
+    Mantém compatível e evita lista vazia quebrando o IN().
+    """
+    if not statuses:
+        return [STATUS_APPROVED, STATUS_REJECTED]
+    cleaned = [s.strip() for s in statuses if s and s.strip()]
+    return cleaned or [STATUS_APPROVED, STATUS_REJECTED]
+
+
+# ======================
+# Public service methods
+# ======================
 def generate_for_reflection(db: Session, *, reflection_id: int) -> Feedback:
     """
     Gera feedback com IA para uma reflexão.
@@ -83,7 +106,7 @@ def generate_for_reflection(db: Session, *, reflection_id: int) -> Feedback:
 
 
 def list_pending(db: Session) -> list[Feedback]:
-    """Lista feedbacks pendentes para aprovação do terapeuta"""
+    """Lista feedbacks pendentes para aprovação do terapeuta."""
     return (
         db.query(Feedback)
         .filter(Feedback.status == STATUS_PENDING)
@@ -99,9 +122,10 @@ def approve(
     therapist_id: int,
     update_data,
 ) -> Feedback:
-    """Terapeuta aprova (e pode editar) o feedback da IA"""
+    """Terapeuta aprova (e pode editar) o feedback da IA."""
     fb = _get_feedback_or_404(db, feedback_id)
 
+    # idempotente: se já aprovado, só retorna
     if fb.status == STATUS_APPROVED:
         return fb
 
@@ -134,7 +158,7 @@ def reject(
     therapist_id: int,
     notes: str | None,
 ) -> Feedback:
-    """Terapeuta rejeita o feedback gerado pela IA"""
+    """Terapeuta rejeita o feedback gerado pela IA."""
     fb = _get_feedback_or_404(db, feedback_id)
 
     fb.status = STATUS_REJECTED
@@ -160,7 +184,10 @@ def get_by_reflection_for_client(
     """
     reflection = (
         db.query(Reflection)
-        .filter(Reflection.id == reflection_id, Reflection.client_id == client_id)
+        .filter(
+            Reflection.id == reflection_id,
+            Reflection.client_id == client_id,
+        )
         .one_or_none()
     )
     if not reflection:
@@ -186,8 +213,7 @@ def get_by_reflection_for_therapist(
     reflection_id: int,
 ) -> Feedback:
     """
-    ✅ NOVO: terapeuta pode ver feedback da reflexão (qualquer status).
-    Isso resolve o app não conseguir carregar o feedback diretamente.
+    Terapeuta pode ver feedback da reflexão (qualquer status).
     """
     _get_reflection_or_404(db, reflection_id)
 
@@ -200,3 +226,25 @@ def get_by_reflection_for_therapist(
         raise HTTPException(status_code=404, detail="Feedback not found for this reflection")
 
     return fb
+
+
+def list_by_client_for_therapist(
+    db: Session,
+    *,
+    client_id: int,
+    statuses: list[str] | None = None,
+) -> list[Feedback]:
+    """
+    Terapeuta lista feedbacks de um cliente (ex: approved + rejected).
+    OBS: feedback não tem client_id direto; vem via Reflection.client_id.
+    """
+    statuses = _parse_statuses(statuses)
+
+    return (
+        db.query(Feedback)
+        .join(Reflection, Reflection.id == Feedback.reflection_id)
+        .filter(Reflection.client_id == client_id)
+        .filter(Feedback.status.in_(statuses))
+        .order_by(Feedback.id.desc())
+        .all()
+    )
