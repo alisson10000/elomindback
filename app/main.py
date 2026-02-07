@@ -5,10 +5,13 @@ from app.db.base import Base
 from app.db.session import engine
 
 from app.modules.auth.router import router as auth_router
+from app.modules.auth.password_reset.router import router as password_reset_router  # ✅ NOVO
+
 from app.modules.reflections.router import router as reflections_router
 from app.modules.feedback.router import router as feedback_router
 from app.modules.users.router import router as users_router
-from app.modules.invitations.router import router as invitations_router  # ✅
+from app.modules.invitations.router import router as invitations_router
+from app.modules.consents.router import router as consents_router  # ✅ já estava
 
 app = FastAPI(
     title="EloMind API",
@@ -30,11 +33,23 @@ def on_startup():
     Base.metadata.create_all(bind=engine)
     print("✅ Banco de dados inicializado")
 
+# =========================
+# Routers
+# =========================
+
+# Auth
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
+
+# ✅ Reset de senha (também é /auth/...)
+# dentro dele você tem: /forgot-password e /reset-password
+app.include_router(password_reset_router, prefix="/auth", tags=["Auth"])
+
+# App
 app.include_router(reflections_router, prefix="/reflections", tags=["Reflections"])
 app.include_router(feedback_router, prefix="/feedback", tags=["Feedback"])
 app.include_router(users_router)
-app.include_router(invitations_router)  # ✅
+app.include_router(invitations_router)
+app.include_router(consents_router)
 
 @app.get("/health")
 def health():
