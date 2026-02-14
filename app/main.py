@@ -5,13 +5,17 @@ from app.db.base import Base
 from app.db.session import engine
 
 from app.modules.auth.router import router as auth_router
-from app.modules.auth.password_reset.router import router as password_reset_router  # ✅ NOVO
+from app.modules.auth.password_reset.router import router as password_reset_router
 
 from app.modules.reflections.router import router as reflections_router
 from app.modules.feedback.router import router as feedback_router
 from app.modules.users.router import router as users_router
 from app.modules.invitations.router import router as invitations_router
-from app.modules.consents.router import router as consents_router  # ✅ já estava
+from app.modules.consents.router import router as consents_router
+
+# ✅ NOVO: importar router da anamnesis
+from app.modules.anamnesis.router import router as anamnesis_router
+
 
 app = FastAPI(
     title="EloMind API",
@@ -19,6 +23,10 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# =========================
+# CORS
+# =========================
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,10 +36,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# =========================
+# Startup
+# =========================
+
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
     print("✅ Banco de dados inicializado")
+
 
 # =========================
 # Routers
@@ -40,8 +53,7 @@ def on_startup():
 # Auth
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 
-# ✅ Reset de senha (também é /auth/...)
-# dentro dele você tem: /forgot-password e /reset-password
+# Reset senha
 app.include_router(password_reset_router, prefix="/auth", tags=["Auth"])
 
 # App
@@ -50,6 +62,14 @@ app.include_router(feedback_router, prefix="/feedback", tags=["Feedback"])
 app.include_router(users_router)
 app.include_router(invitations_router)
 app.include_router(consents_router)
+
+# ✅ NOVO: Anamnesis
+app.include_router(anamnesis_router, prefix="/anamnesis", tags=["Anamnesis"])
+
+
+# =========================
+# Health
+# =========================
 
 @app.get("/health")
 def health():

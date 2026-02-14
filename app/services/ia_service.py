@@ -133,7 +133,7 @@ def _pick_style() -> str:
     ])
 
 
-def generate_feedback_structured(*, reflection_text: str) -> dict:
+def generate_feedback_structured(*, reflection_text: str, anamnesis_summary: Optional[str] = None) -> dict:
     """
     Gera feedback terapêutico com saída estruturada (JSON).
     - Não faz diagnóstico
@@ -142,11 +142,19 @@ def generate_feedback_structured(*, reflection_text: str) -> dict:
     - Não substitui acompanhamento profissional
     - Inclui dica específica de neuro nutrição (alimentação/cérebro-intestino)
     Retorna dict com chaves: feedback, neuro_tip, activity
+
+    ✅ AJUSTE: usa "anamnesis_summary" como contexto (quando existir),
+    sem reproduzir literalmente e sem expor dados sensíveis.
     """
     request_id = uuid.uuid4().hex[:8]
 
     reflection_text = (reflection_text or "").strip()
-    logger.info(f"[{request_id}] START model={OPENAI_MODEL} input_chars={len(reflection_text)}")
+    anamnesis_summary = (anamnesis_summary or "").strip()
+
+    logger.info(
+        f"[{request_id}] START model={OPENAI_MODEL} "
+        f"input_chars={len(reflection_text)} anamnesis_chars={len(anamnesis_summary)}"
+    )
 
     if not reflection_text:
         logger.info(f"[{request_id}] EMPTY_INPUT -> fallback")
@@ -169,6 +177,7 @@ def generate_feedback_structured(*, reflection_text: str) -> dict:
         "- Não substitua acompanhamento profissional.\n"
         "- Seja gentil, claro e objetivo.\n"
         "- Responda SEMPRE em JSON puro (sem markdown, sem texto fora do JSON).\n"
+        "- Se houver ANAMNESE, use apenas como CONTEXTO; NÃO copie literalmente nem exponha dados sensíveis.\n"
     )
 
     user_prompt = f"""
@@ -192,6 +201,9 @@ Regras obrigatórias do campo neuro_tip:
 - Fale apenas de alimentação, hidratação ou hábitos alimentares (microbiota/intestino-cérebro).
 - Não prescreva dieta, não prometa cura, não indique suplemento/medicamento.
 - Seja simples e aplicável no dia a dia.
+
+ANAMNESE DO CLIENTE (contexto; não repetir literalmente):
+{anamnesis_summary if anamnesis_summary else "(sem anamnese cadastrada)"}
 
 Reflexão do cliente:
 {reflection_text}

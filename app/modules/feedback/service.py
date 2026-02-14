@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.feedback.model import Feedback
 from app.modules.reflections.model import Reflection
+from app.modules.anamnesis.model import Anamnesis  # ✅ NOVO (para contexto da IA)
 from app.services.ia_service import generate_feedback_structured
 
 STATUS_PENDING = "pending_approval"
@@ -52,6 +53,36 @@ def _parse_statuses(statuses: list[str] | None) -> list[str]:
     return cleaned or [STATUS_APPROVED, STATUS_REJECTED]
 
 
+def _get_anamnesis_summary_for_reflection(db: Session, reflection: Reflection) -> str | None:
+    """
+    ✅ NOVO (ajuste fino):
+    Busca a anamnese (summary) para usar como contexto da IA.
+
+    Observação: para evitar quebrar seu fluxo, este helper é resiliente:
+    - se a Reflection não tiver therapist_id, não tenta buscar anamnese
+    - se não existir anamnese, retorna None
+    """
+    client_id = getattr(reflection, "client_id", None)
+    therapist_id = getattr(reflection, "therapist_id", None)
+
+    if not client_id or not therapist_id:
+        return None
+
+    row = (
+        db.query(Anamnesis)
+        .filter(
+            Anamnesis.client_id == client_id,
+            Anamnesis.therapist_id == therapist_id,
+        )
+        .one_or_none()
+    )
+
+    if not row or not row.summary:
+        return None
+
+    return row.summary
+
+
 # ======================
 # Public service methods
 # ======================
@@ -59,6 +90,8 @@ def generate_for_reflection(db: Session, *, reflection_id: int) -> Feedback:
     """
     Gera feedback com IA para uma reflexão.
     Regra: cria apenas 1 feedback por reflexão (idempotente).
+
+    ✅ AJUSTE: injeta anamnese (summary) como contexto da IA quando existir.
     """
     reflection = _get_reflection_or_404(db, reflection_id)
 
@@ -77,7 +110,14 @@ def generate_for_reflection(db: Session, *, reflection_id: int) -> Feedback:
         f"Resistência: {reflection.resistance_or_disagreement or 'N/A'}\n"
     )
 
-    generated = generate_feedback_structured(reflection_text=reflection_text)
+    # ✅ NOVO: busca contexto da anamnese (se houver)
+    anamnesis_summary = _get_anamnesis_summary_for_reflection(db, reflection)
+
+    # ✅ AJUSTE: passa anamnese para a IA (sem mudar nome da função)
+    generated = generate_feedback_structured(
+        reflection_text=reflection_text,
+        anamnesis_summary=anamnesis_summary,
+    )
 
     fb = Feedback(
         reflection_id=reflection_id,
