@@ -55,6 +55,7 @@ def list_my_reflections_with_delete_flag(db: Session, client_id: int):
                 "positive_point": ref.positive_point,
                 "resistance_or_disagreement": ref.resistance_or_disagreement,
                 "created_at": ref.created_at,
+                "updated_at": ref.updated_at,  # necessário por causa do schema
                 "can_delete": last_approved_at is None,
             }
         )
@@ -72,7 +73,10 @@ def delete_reflection(db: Session, reflection_id: int, client_id: int):
 
     approved_exists = (
         db.query(Feedback.id)
-        .filter(Feedback.reflection_id == reflection_id, Feedback.status == "approved")
+        .filter(
+            Feedback.reflection_id == reflection_id,
+            Feedback.status == "approved",
+        )
         .first()
         is not None
     )
@@ -82,6 +86,44 @@ def delete_reflection(db: Session, reflection_id: int, client_id: int):
     db.delete(ref)
     db.commit()
     return True
+
+
+def update_reflection(db: Session, reflection_id: int, client_id: int, data):
+    """
+    PATCH /reflections/{id}
+    - só o dono (client_id) consegue editar
+    - bloqueia edição se já existir feedback aprovado
+    - updated_at é atualizado pelo onupdate do model
+    """
+    ref = (
+        db.query(Reflection)
+        .filter(Reflection.id == reflection_id, Reflection.client_id == client_id)
+        .first()
+    )
+    if not ref:
+        return None
+
+    # ✅ AJUSTE: não permitir editar após feedback aprovado
+    approved_exists = (
+        db.query(Feedback.id)
+        .filter(
+            Feedback.reflection_id == reflection_id,
+            Feedback.status == "approved",
+        )
+        .first()
+        is not None
+    )
+    if approved_exists:
+        raise ValueError("Não é possível editar: já existe feedback aprovado.")
+
+    ref.feeling_after_session = data.feeling_after_session
+    ref.what_learned = data.what_learned
+    ref.positive_point = data.positive_point
+    ref.resistance_or_disagreement = getattr(data, "resistance_or_disagreement", None)
+
+    db.commit()
+    db.refresh(ref)
+    return ref
 
 
 # -------------------------
@@ -109,13 +151,14 @@ def get_reflection_detail_for_therapist(db: Session, reflection_id: int):
         "positive_point": ref.positive_point,
         "resistance_or_disagreement": ref.resistance_or_disagreement,
         "created_at": ref.created_at,
+        "updated_at": ref.updated_at,
     }
 
 
 def list_pending_reflections(db: Session):
     """
     Pendentes = reflection sem feedback aprovado.
-    Evita duplicar quando existe mais de um feedback por reflection
+    Evita duplicar quando existe mais de um feedback por reflection,
     pegando apenas o ÚLTIMO feedback (por created_at).
     """
 
@@ -152,7 +195,7 @@ def list_pending_reflections(db: Session):
                 "client_name": client_name,
                 "feeling_after_session": ref.feeling_after_session,
                 "created_at": ref.created_at,
-                # (não entra no schema, então não devolvo aqui)
+                # fb_status existe aqui, mas não entra no schema atual
             }
         )
     return items

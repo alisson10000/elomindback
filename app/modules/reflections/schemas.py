@@ -1,13 +1,23 @@
 from datetime import datetime
 from pydantic import BaseModel
 
+
 class ReflectionCreate(BaseModel):
     feeling_after_session: str
     what_learned: str
     positive_point: str
     resistance_or_disagreement: str | None = None
 
-# ✅ usado no POST /reflections (não tem can_delete)
+
+# ✅ necessário para PATCH /reflections/{id}
+class ReflectionUpdate(BaseModel):
+    feeling_after_session: str
+    what_learned: str
+    positive_point: str
+    resistance_or_disagreement: str | None = None
+
+
+# ✅ usado no POST /reflections
 class ReflectionOut(BaseModel):
     id: int
     client_id: int
@@ -16,16 +26,19 @@ class ReflectionOut(BaseModel):
     positive_point: str
     resistance_or_disagreement: str | None = None
     created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
 
-# ✅ usado no GET /reflections/me (tem can_delete)
+
+# ✅ usado no GET /reflections/me
 class ReflectionOutWithFlags(ReflectionOut):
     can_delete: bool
 
     class Config:
         from_attributes = True
+
 
 # ✅ THERAPIST - lista pendentes
 class ReflectionPendingOut(BaseModel):
@@ -38,6 +51,7 @@ class ReflectionPendingOut(BaseModel):
     class Config:
         from_attributes = True
 
+
 # ✅ THERAPIST - detalhe
 class ReflectionDetailOut(BaseModel):
     id: int
@@ -48,6 +62,7 @@ class ReflectionDetailOut(BaseModel):
     positive_point: str
     resistance_or_disagreement: str | None = None
     created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

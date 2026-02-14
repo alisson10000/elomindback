@@ -3,16 +3,20 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.deps import get_current_user
+
 from app.modules.reflections.schemas import (
     ReflectionCreate,
+    ReflectionUpdate,
     ReflectionOut,
     ReflectionOutWithFlags,
     ReflectionPendingOut,
     ReflectionDetailOut,
 )
+
 from app.modules.reflections.service import (
     create_reflection,
     delete_reflection,
+    update_reflection,
     list_my_reflections_with_delete_flag,
     list_pending_reflections,
     get_reflection_detail_for_therapist,
@@ -23,13 +27,19 @@ router = APIRouter(tags=["Reflections"])
 
 def require_client(user=Depends(get_current_user)):
     if getattr(user, "role", None) != "client":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden",
+        )
     return user
 
 
 def require_therapist(user=Depends(get_current_user)):
     if getattr(user, "role", None) != "therapist":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden",
+        )
     return user
 
 
@@ -51,6 +61,30 @@ def my_history(
     user=Depends(require_client),
 ):
     return list_my_reflections_with_delete_flag(db, client_id=user.id)
+
+
+@router.patch("/{reflection_id}", response_model=ReflectionOut)
+def update_route(
+    reflection_id: int,
+    payload: ReflectionUpdate,
+    db: Session = Depends(get_db),
+    user=Depends(require_client),
+):
+    try:
+        ref = update_reflection(
+            db,
+            reflection_id=reflection_id,
+            client_id=user.id,
+            data=payload,
+        )
+    except ValueError as e:
+        # ✅ evita 500 quando já existe feedback aprovado
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not ref:
+        raise HTTPException(status_code=404, detail="Reflection not found")
+
+    return ref
 
 
 @router.delete("/{reflection_id}")
