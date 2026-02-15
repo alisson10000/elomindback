@@ -12,9 +12,8 @@ from app.modules.feedback.router import router as feedback_router
 from app.modules.users.router import router as users_router
 from app.modules.invitations.router import router as invitations_router
 from app.modules.consents.router import router as consents_router
-
-# ✅ NOVO: importar router da anamnesis
 from app.modules.anamnesis.router import router as anamnesis_router
+from app.modules.dreams.router import router as dreams_router
 
 
 app = FastAPI(
@@ -27,7 +26,6 @@ app = FastAPI(
 # =========================
 # CORS
 # =========================
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -39,12 +37,10 @@ app.add_middleware(
 # =========================
 # Startup
 # =========================
-
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
     print("✅ Banco de dados inicializado")
-
 
 # =========================
 # Routers
@@ -52,25 +48,26 @@ def on_startup():
 
 # Auth
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
-
-# Reset senha
 app.include_router(password_reset_router, prefix="/auth", tags=["Auth"])
 
-# App
+# App (core)
 app.include_router(reflections_router, prefix="/reflections", tags=["Reflections"])
 app.include_router(feedback_router, prefix="/feedback", tags=["Feedback"])
+
+# Users / convites / termos
 app.include_router(users_router)
 app.include_router(invitations_router)
 app.include_router(consents_router)
 
-# ✅ NOVO: Anamnesis
+# Anamnese
 app.include_router(anamnesis_router, prefix="/anamnesis", tags=["Anamnesis"])
 
+# ✅ Sonhos (RF005) — padronizado com prefix/tags
+app.include_router(dreams_router, prefix="/dreams", tags=["Dreams"])
 
 # =========================
 # Health
 # =========================
-
 @app.get("/health")
 def health():
     return {"status": "ok"}

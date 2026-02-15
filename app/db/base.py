@@ -11,3 +11,4 @@ from app.modules.therapist_clients.model import TherapistClient  # noqa: F401
 from app.modules.consents.model import Consent  # noqa: F401
 from app.modules.auth.password_reset.model import PasswordResetToken  # noqa: F401
 from app.modules.anamnesis.model import Anamnesis  # noqa: F401
+from app.modules.dreams.router import router as dreams_router  # noqa: F401

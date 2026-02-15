@@ -143,13 +143,17 @@ def generate_feedback_structured(*, reflection_text: str, anamnesis_summary: Opt
     - Inclui dica específica de neuro nutrição (alimentação/cérebro-intestino)
     Retorna dict com chaves: feedback, neuro_tip, activity
 
-    ✅ AJUSTE: usa "anamnesis_summary" como contexto (quando existir),
+    ✅ Usa "anamnesis_summary" como contexto (quando existir),
     sem reproduzir literalmente e sem expor dados sensíveis.
     """
     request_id = uuid.uuid4().hex[:8]
 
     reflection_text = (reflection_text or "").strip()
     anamnesis_summary = (anamnesis_summary or "").strip()
+
+    # proteção simples pra não explodir tokens com anamneses enormes
+    if len(anamnesis_summary) > 4000:
+        anamnesis_summary = anamnesis_summary[:4000].rstrip() + "…"
 
     logger.info(
         f"[{request_id}] START model={OPENAI_MODEL} "
@@ -177,7 +181,7 @@ def generate_feedback_structured(*, reflection_text: str, anamnesis_summary: Opt
         "- Não substitua acompanhamento profissional.\n"
         "- Seja gentil, claro e objetivo.\n"
         "- Responda SEMPRE em JSON puro (sem markdown, sem texto fora do JSON).\n"
-        "- Se houver ANAMNESE, use apenas como CONTEXTO; NÃO copie literalmente nem exponha dados sensíveis.\n"
+        "- Se houver ANAMNESE, use apenas como CONTEXTO; NÃO copie literalmente e NÃO exponha dados sensíveis.\n"
     )
 
     user_prompt = f"""
@@ -196,6 +200,7 @@ Regras de qualidade do campo "feedback":
 - Evite clichês/começos genéricos (ex: "É compreensível...", "Seja gentil consigo mesmo...", "Cada passo é uma conquista...").
 - Traga 1 pergunta reflexiva curta no final (1 frase).
 - Sem diagnóstico; sem prometer cura; sem instruções de urgência.
+- Se usar ANAMNESE: apenas como contexto. Não copiar literal; não revelar detalhes sensíveis.
 
 Regras obrigatórias do campo neuro_tip:
 - Fale apenas de alimentação, hidratação ou hábitos alimentares (microbiota/intestino-cérebro).
@@ -216,7 +221,6 @@ Reflexão do cliente:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            # ✅ mais variedade sem perder controle
             temperature=0.7,
             presence_penalty=0.4,
             frequency_penalty=0.3,
