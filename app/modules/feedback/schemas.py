@@ -11,11 +11,11 @@ class FeedbackOut(BaseModel):
     status: str
     therapist_approved_by: int | None = None
     therapist_notes: str | None = None
-
     approved_at: datetime | None = None
     created_at: datetime | None = None
 
-    
+    class Config:
+        from_attributes = True
 
 
 class FeedbackApproveIn(BaseModel):
@@ -30,7 +30,7 @@ class FeedbackRejectIn(BaseModel):
 
 
 class FeedbackWithReflectionOut(BaseModel):
-    # ===== Feedback (igual FeedbackOut) =====
+    # ===== Feedback =====
     id: int
     reflection_id: int
     ia_generated_content: str
@@ -39,13 +39,12 @@ class FeedbackWithReflectionOut(BaseModel):
     status: str
     therapist_approved_by: int | None = None
     therapist_notes: str | None = None
-
     approved_at: datetime | None = None
     created_at: datetime | None = None
 
-    # ===== Reflection (perguntas respondidas) =====
+    # ===== Reflection =====
     client_id: int
-    client_name: str | None = None  # se você tiver disponível (opcional)
+    client_name: str | None = None
     feeling_after_session: str
     what_learned: str
     positive_point: str

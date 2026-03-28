@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.modules.anamnesis.model import Anamnesis
 from app.modules.feedback.model import Feedback
+from app.modules.push_tokens.service import get_user_push_tokens, send_expo_push
 from app.modules.reflections.model import Reflection
-from app.modules.anamnesis.model import Anamnesis  # ✅ contexto da IA
 from app.services.ia_service import generate_feedback_structured
 
 STATUS_PENDING = "pending_approval"
@@ -48,11 +50,15 @@ def _parse_statuses(statuses: list[str] | None) -> list[str]:
     """
     if not statuses:
         return [STATUS_APPROVED, STATUS_REJECTED]
+
     cleaned = [s.strip() for s in statuses if s and s.strip()]
     return cleaned or [STATUS_APPROVED, STATUS_REJECTED]
 
 
-def _get_anamnesis_summary_for_reflection(db: Session, reflection: Reflection) -> str | None:
+def _get_anamnesis_summary_for_reflection(
+    db: Session,
+    reflection: Reflection,
+) -> str | None:
     """
     Busca a anamnese (summary) para usar como contexto da IA.
 
@@ -64,6 +70,10 @@ def _get_anamnesis_summary_for_reflection(db: Session, reflection: Reflection) -
     therapist_id = getattr(reflection, "therapist_id", None)
 
     if not client_id or not therapist_id:
+        print(
+            f"ℹ️ [_get_anamnesis_summary_for_reflection] Sem contexto suficiente | "
+            f"client_id={client_id} therapist_id={therapist_id}"
+        )
         return None
 
     row = (
@@ -76,9 +86,111 @@ def _get_anamnesis_summary_for_reflection(db: Session, reflection: Reflection) -
     )
 
     if not row or not row.summary:
+        print(
+            f"ℹ️ [_get_anamnesis_summary_for_reflection] Anamnese não encontrada | "
+            f"client_id={client_id} therapist_id={therapist_id}"
+        )
         return None
 
+    print(
+        f"✅ [_get_anamnesis_summary_for_reflection] Anamnese encontrada | "
+        f"client_id={client_id} therapist_id={therapist_id}"
+    )
     return row.summary
+
+
+def _notify_client_feedback_approved(
+    db: Session,
+    *,
+    feedback: Feedback,
+) -> None:
+    """
+    Envia push para o cliente dono da reflexão.
+    Não quebra a aprovação se falhar.
+    """
+    print(
+        f"🟡 [_notify_client_feedback_approved] Início | "
+        f"feedback_id={feedback.id} reflection_id={feedback.reflection_id}"
+    )
+
+    try:
+        reflection = (
+            db.query(Reflection)
+            .filter(Reflection.id == feedback.reflection_id)
+            .one_or_none()
+        )
+
+        print(
+            f"🔎 [_notify_client_feedback_approved] Reflection carregada | "
+            f"found={bool(reflection)} reflection_id={feedback.reflection_id}"
+        )
+
+        if not reflection:
+            print(
+                f"⚠️ Reflection não encontrada para push | "
+                f"feedback_id={feedback.id} reflection_id={feedback.reflection_id}"
+            )
+            return
+
+        print(
+            f"🧠 [_notify_client_feedback_approved] client_id da reflection: "
+            f"{reflection.client_id} | feedback_id={feedback.id}"
+        )
+
+        if not reflection.client_id:
+            print(
+                f"⚠️ Reflection sem client_id para push | "
+                f"feedback_id={feedback.id} reflection_id={feedback.reflection_id}"
+            )
+            return
+
+        tokens = get_user_push_tokens(db, reflection.client_id)
+
+        print(
+            f"📲 [_notify_client_feedback_approved] tokens encontrados: {tokens} "
+            f"| total={len(tokens) if tokens else 0} "
+            f"| client_id={reflection.client_id}"
+        )
+
+        if not tokens:
+            print(
+                f"⚠️ Cliente sem push tokens | "
+                f"client_id={reflection.client_id} feedback_id={feedback.id}"
+            )
+            return
+
+        payload_data = {
+            "type": "feedback_approved",
+            "feedback_id": feedback.id,
+            "reflection_id": feedback.reflection_id,
+            "client_id": reflection.client_id,
+        }
+
+        print(
+            f"📦 [_notify_client_feedback_approved] payload_data={payload_data}"
+        )
+
+        result = asyncio.run(
+            send_expo_push(
+                db=db,
+                push_tokens=tokens,
+                title="Sua devolutiva está pronta",
+                body="Seu terapeuta aprovou uma nova devolutiva para sua reflexão.",
+                data=payload_data,
+            )
+        )
+
+        print(
+            f"✅ Push enviada/processada | "
+            f"client_id={reflection.client_id} "
+            f"feedback_id={feedback.id} "
+            f"reflection_id={feedback.reflection_id} "
+            f"tokens={len(tokens)} "
+            f"result={result}"
+        )
+
+    except Exception as e:
+        print(f"⚠️ Falha ao enviar push do feedback {feedback.id}: {e}")
 
 
 # ======================
@@ -89,8 +201,10 @@ def generate_for_reflection(db: Session, *, reflection_id: int) -> Feedback:
     Gera feedback com IA para uma reflexão.
     Regra: cria apenas 1 feedback por reflexão (idempotente).
 
-    ✅ injeta anamnese (summary) como contexto da IA quando existir.
+    Injeta anamnese (summary) como contexto da IA quando existir.
     """
+    print(f"🟡 [generate_for_reflection] Início | reflection_id={reflection_id}")
+
     reflection = _get_reflection_or_404(db, reflection_id)
 
     existing = (
@@ -99,6 +213,10 @@ def generate_for_reflection(db: Session, *, reflection_id: int) -> Feedback:
         .one_or_none()
     )
     if existing:
+        print(
+            f"ℹ️ [generate_for_reflection] Feedback já existia | "
+            f"feedback_id={existing.id} reflection_id={reflection_id} status={existing.status}"
+        )
         return existing
 
     reflection_text = (
@@ -108,11 +226,23 @@ def generate_for_reflection(db: Session, *, reflection_id: int) -> Feedback:
         f"Resistência: {reflection.resistance_or_disagreement or 'N/A'}\n"
     )
 
+    print(
+        f"📝 [generate_for_reflection] Texto montado para IA | "
+        f"reflection_id={reflection_id}"
+    )
+
     anamnesis_summary = _get_anamnesis_summary_for_reflection(db, reflection)
 
     generated = generate_feedback_structured(
         reflection_text=reflection_text,
         anamnesis_summary=anamnesis_summary,
+    )
+
+    print(
+        f"🤖 [generate_for_reflection] IA respondeu | "
+        f"has_feedback={bool(generated.get('feedback'))} "
+        f"has_neuro_tip={bool(generated.get('neuro_tip'))} "
+        f"has_activity={bool(generated.get('activity'))}"
     )
 
     fb = Feedback(
@@ -127,27 +257,45 @@ def generate_for_reflection(db: Session, *, reflection_id: int) -> Feedback:
         db.add(fb)
         db.commit()
         db.refresh(fb)
+
+        print(
+            f"✅ [generate_for_reflection] Feedback criado | "
+            f"feedback_id={fb.id} reflection_id={fb.reflection_id} status={fb.status}"
+        )
         return fb
+
     except IntegrityError:
         db.rollback()
+        print(
+            f"⚠️ [generate_for_reflection] IntegrityError; tentando recuperar feedback existente | "
+            f"reflection_id={reflection_id}"
+        )
+
         fb2 = (
             db.query(Feedback)
             .filter(Feedback.reflection_id == reflection_id)
             .one_or_none()
         )
         if fb2:
+            print(
+                f"✅ [generate_for_reflection] Feedback recuperado após rollback | "
+                f"feedback_id={fb2.id} reflection_id={fb2.reflection_id}"
+            )
             return fb2
         raise
 
 
 def list_pending(db: Session) -> list[Feedback]:
     """Lista feedbacks pendentes para aprovação do terapeuta."""
-    return (
+    rows = (
         db.query(Feedback)
         .filter(Feedback.status == STATUS_PENDING)
         .order_by(Feedback.id.desc())
         .all()
     )
+
+    print(f"📋 [list_pending] total={len(rows)}")
+    return rows
 
 
 def approve(
@@ -157,30 +305,61 @@ def approve(
     therapist_id: int,
     update_data,
 ) -> Feedback:
-    """Terapeuta aprova (e pode editar) o feedback da IA."""
+    """
+    Terapeuta aprova (e pode editar) o feedback da IA.
+    Após aprovar, envia push para o cliente dono da reflexão.
+    """
+    print(
+        f"🟡 [approve] Início | feedback_id={feedback_id} therapist_id={therapist_id}"
+    )
+
     fb = _get_feedback_or_404(db, feedback_id)
 
+    print(
+        f"📦 [approve] Feedback encontrado | "
+        f"id={fb.id} reflection_id={fb.reflection_id} status_atual={fb.status}"
+    )
+
     if fb.status == STATUS_APPROVED:
+        print(f"ℹ️ [approve] Feedback já estava aprovado | feedback_id={fb.id}")
         return fb
 
     if getattr(update_data, "ia_generated_content", None) is not None:
         fb.ia_generated_content = update_data.ia_generated_content
+        print(f"✏️ [approve] ia_generated_content atualizado | feedback_id={fb.id}")
 
     if getattr(update_data, "ia_neuro_nutrition_tip", None) is not None:
         fb.ia_neuro_nutrition_tip = update_data.ia_neuro_nutrition_tip
+        print(f"✏️ [approve] ia_neuro_nutrition_tip atualizado | feedback_id={fb.id}")
 
     if getattr(update_data, "ia_activity_suggestion", None) is not None:
         fb.ia_activity_suggestion = update_data.ia_activity_suggestion
+        print(f"✏️ [approve] ia_activity_suggestion atualizado | feedback_id={fb.id}")
 
     if getattr(update_data, "therapist_notes", None) is not None:
         fb.therapist_notes = update_data.therapist_notes
+        print(f"✏️ [approve] therapist_notes atualizado | feedback_id={fb.id}")
 
     fb.status = STATUS_APPROVED
     fb.therapist_approved_by = therapist_id
     fb.approved_at = datetime.utcnow()
 
+    print(
+        f"💾 [approve] Salvando aprovação | "
+        f"feedback_id={fb.id} novo_status={fb.status}"
+    )
+
     db.commit()
     db.refresh(fb)
+
+    print(
+        f"✅ [approve] Feedback aprovado | "
+        f"feedback_id={fb.id} reflection_id={fb.reflection_id} "
+        f"approved_at={fb.approved_at}"
+    )
+
+    _notify_client_feedback_approved(db, feedback=fb)
+
     return fb
 
 
@@ -192,7 +371,16 @@ def reject(
     notes: str | None,
 ) -> Feedback:
     """Terapeuta rejeita o feedback gerado pela IA."""
+    print(
+        f"🟡 [reject] Início | feedback_id={feedback_id} therapist_id={therapist_id}"
+    )
+
     fb = _get_feedback_or_404(db, feedback_id)
+
+    print(
+        f"📦 [reject] Feedback encontrado | "
+        f"id={fb.id} reflection_id={fb.reflection_id} status_atual={fb.status}"
+    )
 
     fb.status = STATUS_REJECTED
     fb.therapist_approved_by = therapist_id
@@ -201,6 +389,11 @@ def reject(
 
     db.commit()
     db.refresh(fb)
+
+    print(
+        f"✅ [reject] Feedback rejeitado | "
+        f"feedback_id={fb.id} reflection_id={fb.reflection_id}"
+    )
     return fb
 
 
@@ -215,6 +408,11 @@ def get_by_reflection_for_client(
     - se a reflexão pertence a ele
     - e se status == approved
     """
+    print(
+        f"🟡 [get_by_reflection_for_client] Início | "
+        f"reflection_id={reflection_id} client_id={client_id}"
+    )
+
     reflection = (
         db.query(Reflection)
         .filter(
@@ -224,7 +422,14 @@ def get_by_reflection_for_client(
         .one_or_none()
     )
     if not reflection:
-        raise HTTPException(status_code=404, detail="Reflection not found for this user")
+        print(
+            f"❌ [get_by_reflection_for_client] Reflection não encontrada | "
+            f"reflection_id={reflection_id} client_id={client_id}"
+        )
+        raise HTTPException(
+            status_code=404,
+            detail="Reflection not found for this user",
+        )
 
     fb = (
         db.query(Feedback)
@@ -232,11 +437,19 @@ def get_by_reflection_for_client(
         .one_or_none()
     )
     if not fb or fb.status != STATUS_APPROVED:
+        print(
+            f"❌ [get_by_reflection_for_client] Sem feedback aprovado | "
+            f"reflection_id={reflection_id}"
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No approved feedback for this reflection",
         )
 
+    print(
+        f"✅ [get_by_reflection_for_client] Feedback aprovado encontrado | "
+        f"feedback_id={fb.id} reflection_id={reflection_id}"
+    )
     return fb
 
 
@@ -246,6 +459,8 @@ def get_by_reflection_for_therapist(
     reflection_id: int,
 ) -> Feedback:
     """Terapeuta pode ver feedback da reflexão (qualquer status)."""
+    print(f"🟡 [get_by_reflection_for_therapist] Início | reflection_id={reflection_id}")
+
     _get_reflection_or_404(db, reflection_id)
 
     fb = (
@@ -254,8 +469,19 @@ def get_by_reflection_for_therapist(
         .one_or_none()
     )
     if not fb:
-        raise HTTPException(status_code=404, detail="Feedback not found for this reflection")
+        print(
+            f"❌ [get_by_reflection_for_therapist] Feedback não encontrado | "
+            f"reflection_id={reflection_id}"
+        )
+        raise HTTPException(
+            status_code=404,
+            detail="Feedback not found for this reflection",
+        )
 
+    print(
+        f"✅ [get_by_reflection_for_therapist] Feedback encontrado | "
+        f"feedback_id={fb.id} reflection_id={reflection_id} status={fb.status}"
+    )
     return fb
 
 
@@ -271,7 +497,7 @@ def list_by_client_for_therapist(
     """
     statuses = _parse_statuses(statuses)
 
-    return (
+    rows = (
         db.query(Feedback)
         .join(Reflection, Reflection.id == Feedback.reflection_id)
         .filter(Reflection.client_id == client_id)
@@ -279,3 +505,9 @@ def list_by_client_for_therapist(
         .order_by(Feedback.id.desc())
         .all()
     )
+
+    print(
+        f"📋 [list_by_client_for_therapist] client_id={client_id} "
+        f"statuses={statuses} total={len(rows)}"
+    )
+    return rows

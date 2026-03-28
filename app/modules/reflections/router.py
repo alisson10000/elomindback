@@ -46,7 +46,7 @@ def require_therapist(user=Depends(get_current_user)):
 # -------------------------
 # CLIENT
 # -------------------------
-@router.post("/", response_model=ReflectionOut)
+@router.post("/", response_model=ReflectionOut, status_code=status.HTTP_201_CREATED)
 def create(
     payload: ReflectionCreate,
     db: Session = Depends(get_db),
@@ -78,7 +78,6 @@ def update_route(
             data=payload,
         )
     except ValueError as e:
-        # ✅ evita 500 quando já existe feedback aprovado
         raise HTTPException(status_code=400, detail=str(e))
 
     if not ref:

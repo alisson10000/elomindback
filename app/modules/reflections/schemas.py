@@ -9,7 +9,7 @@ class ReflectionCreate(BaseModel):
     resistance_or_disagreement: str | None = None
 
 
-# ✅ necessário para PATCH /reflections/{id}
+# usado no PATCH /reflections/{id}
 class ReflectionUpdate(BaseModel):
     feeling_after_session: str
     what_learned: str
@@ -17,10 +17,11 @@ class ReflectionUpdate(BaseModel):
     resistance_or_disagreement: str | None = None
 
 
-# ✅ usado no POST /reflections
+# usado no POST /reflections
 class ReflectionOut(BaseModel):
     id: int
     client_id: int
+    therapist_id: int | None = None
     feeling_after_session: str
     what_learned: str
     positive_point: str
@@ -32,7 +33,7 @@ class ReflectionOut(BaseModel):
         from_attributes = True
 
 
-# ✅ usado no GET /reflections/me
+# usado no GET /reflections/me
 class ReflectionOutWithFlags(ReflectionOut):
     can_delete: bool
 
@@ -40,10 +41,11 @@ class ReflectionOutWithFlags(ReflectionOut):
         from_attributes = True
 
 
-# ✅ THERAPIST - lista pendentes
+# THERAPIST - lista pendentes
 class ReflectionPendingOut(BaseModel):
     id: int
     client_id: int
+    therapist_id: int | None = None
     client_name: str
     feeling_after_session: str
     created_at: datetime
@@ -52,10 +54,11 @@ class ReflectionPendingOut(BaseModel):
         from_attributes = True
 
 
-# ✅ THERAPIST - detalhe
+# THERAPIST - detalhe
 class ReflectionDetailOut(BaseModel):
     id: int
     client_id: int
+    therapist_id: int | None = None
     client_name: str
     feeling_after_session: str
     what_learned: str

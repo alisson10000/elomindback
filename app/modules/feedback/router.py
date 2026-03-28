@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
@@ -20,7 +20,7 @@ from app.modules.feedback.service import (
     reject,
 )
 
-router = APIRouter()
+router = APIRouter(tags=["Feedback"])
 
 
 # ======================
@@ -29,7 +29,10 @@ router = APIRouter()
 def require_role(role: str):
     def _dep(user=Depends(get_current_user)):
         if getattr(user, "role", None) != role:
-            raise HTTPException(status_code=403, detail="Forbidden")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden",
+            )
         return user
 
     return _dep
@@ -38,7 +41,7 @@ def require_role(role: str):
 # ======================
 # Routes
 # ======================
-@router.post("/generate/{reflection_id}", response_model=FeedbackOut)
+@router.post("/generate/{reflection_id}", response_model=FeedbackOut, status_code=status.HTTP_201_CREATED)
 def generate(
     reflection_id: int,
     db: Session = Depends(get_db),
@@ -63,7 +66,12 @@ def approve_route(
     db: Session = Depends(get_db),
     user=Depends(require_role("therapist")),
 ):
-    return approve(db, feedback_id=feedback_id, therapist_id=user.id, update_data=payload)
+    return approve(
+        db,
+        feedback_id=feedback_id,
+        therapist_id=user.id,
+        update_data=payload,
+    )
 
 
 @router.patch("/{feedback_id}/reject", response_model=FeedbackOut)
@@ -81,17 +89,20 @@ def reject_route(
     )
 
 
-# ✅ terapeuta buscar feedback por reflexão (qualquer status)
+# terapeuta buscar feedback por reflexão (qualquer status)
 @router.get("/therapist/by-reflection/{reflection_id}", response_model=FeedbackOut)
 def therapist_by_reflection(
     reflection_id: int,
     db: Session = Depends(get_db),
     user=Depends(require_role("therapist")),
 ):
-    return get_by_reflection_for_therapist(db, reflection_id=reflection_id)
+    return get_by_reflection_for_therapist(
+        db,
+        reflection_id=reflection_id,
+    )
 
 
-# ✅ lista feedbacks do cliente (por padrão approved+rejected)
+# lista feedbacks do cliente (por padrão approved+rejected)
 @router.get("/by-client/{client_id}", response_model=list[FeedbackOut])
 def by_client(
     client_id: int,
@@ -101,13 +112,16 @@ def by_client(
 ):
     statuses = None
     if status:
-        # aceita "approved,rejected" e ignora vazios
         statuses = [s.strip() for s in status.split(",") if s and s.strip()]
 
-    return list_by_client_for_therapist(db, client_id=client_id, statuses=statuses)
+    return list_by_client_for_therapist(
+        db,
+        client_id=client_id,
+        statuses=statuses,
+    )
 
 
-# Mantém: client-only (só approved e só se a reflexão é dele)
+# client-only (só approved e só se a reflexão é dele)
 @router.get("/by-reflection/{reflection_id}", response_model=FeedbackOut)
 def client_by_reflection(
     reflection_id: int,
