@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
+from app.core.crypto import decrypt_text, encrypt_text
 from app.modules.anamnesis.model import Anamnesis
 
 # Se você tiver um model para therapist_clients, importe aqui.
@@ -29,11 +30,26 @@ def _assert_therapist_owns_client(db: Session, therapist_id: int, client_id: int
 def get_anamnesis_by_client(db: Session, therapist_id: int, client_id: int):
     _assert_therapist_owns_client(db, therapist_id=therapist_id, client_id=client_id)
 
-    return (
+    row = (
         db.query(Anamnesis)
         .filter(and_(Anamnesis.client_id == client_id, Anamnesis.therapist_id == therapist_id))
         .first()
     )
+    return _serialize_anamnesis(row)
+
+
+def _serialize_anamnesis(row: Anamnesis | None):
+    if not row:
+        return None
+
+    return {
+        "id": row.id,
+        "client_id": row.client_id,
+        "therapist_id": row.therapist_id,
+        "summary": decrypt_text(row.summary),
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
 
 
 def create_anamnesis(db: Session, therapist_id: int, client_id: int, summary: str):
@@ -48,11 +64,15 @@ def create_anamnesis(db: Session, therapist_id: int, client_id: int, summary: st
     if exists:
         raise ValueError("Anamnese já existe para este cliente.")
 
-    row = Anamnesis(client_id=client_id, therapist_id=therapist_id, summary=summary)
+    row = Anamnesis(
+        client_id=client_id,
+        therapist_id=therapist_id,
+        summary=encrypt_text(summary),
+    )
     db.add(row)
     db.commit()
     db.refresh(row)
-    return row
+    return _serialize_anamnesis(row)
 
 
 def update_anamnesis(db: Session, therapist_id: int, client_id: int, summary: str):
@@ -66,7 +86,7 @@ def update_anamnesis(db: Session, therapist_id: int, client_id: int, summary: st
     if not row:
         return None
 
-    row.summary = summary
+    row.summary = encrypt_text(summary)
     db.commit()
     db.refresh(row)
-    return row
+    return _serialize_anamnesis(row)

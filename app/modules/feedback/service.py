@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.crypto import decrypt_text, encrypt_text
 from app.modules.anamnesis.model import Anamnesis
 from app.modules.feedback.model import Feedback
 from app.modules.push_tokens.service import get_user_push_tokens, send_expo_push
@@ -41,6 +42,21 @@ def _get_feedback_or_404(db: Session, feedback_id: int) -> Feedback:
     if not fb:
         raise HTTPException(status_code=404, detail="Feedback not found")
     return fb
+
+
+def _serialize_feedback(fb: Feedback) -> dict:
+    return {
+        "id": fb.id,
+        "reflection_id": fb.reflection_id,
+        "ia_generated_content": decrypt_text(fb.ia_generated_content),
+        "ia_neuro_nutrition_tip": decrypt_text(fb.ia_neuro_nutrition_tip),
+        "ia_activity_suggestion": decrypt_text(fb.ia_activity_suggestion),
+        "status": fb.status,
+        "therapist_approved_by": fb.therapist_approved_by,
+        "therapist_notes": decrypt_text(fb.therapist_notes),
+        "approved_at": fb.approved_at,
+        "created_at": fb.created_at,
+    }
 
 
 def _parse_statuses(statuses: list[str] | None) -> list[str]:
@@ -96,7 +112,7 @@ def _get_anamnesis_summary_for_reflection(
         f"✅ [_get_anamnesis_summary_for_reflection] Anamnese encontrada | "
         f"client_id={client_id} therapist_id={therapist_id}"
     )
-    return row.summary
+    return decrypt_text(row.summary)
 
 
 def _notify_client_feedback_approved(
@@ -217,13 +233,13 @@ def generate_for_reflection(db: Session, *, reflection_id: int) -> Feedback:
             f"ℹ️ [generate_for_reflection] Feedback já existia | "
             f"feedback_id={existing.id} reflection_id={reflection_id} status={existing.status}"
         )
-        return existing
+        return _serialize_feedback(existing)
 
     reflection_text = (
-        f"Sentimento após sessão: {reflection.feeling_after_session}\n"
-        f"O que aprendeu: {reflection.what_learned}\n"
-        f"Ponto positivo: {reflection.positive_point}\n"
-        f"Resistência: {reflection.resistance_or_disagreement or 'N/A'}\n"
+        f"Sentimento apos sessao: {decrypt_text(reflection.feeling_after_session)}\n"
+        f"O que aprendeu: {decrypt_text(reflection.what_learned)}\n"
+        f"Ponto positivo: {decrypt_text(reflection.positive_point)}\n"
+        f"Resistencia: {decrypt_text(reflection.resistance_or_disagreement) or 'N/A'}\n"
     )
 
     print(
@@ -247,9 +263,9 @@ def generate_for_reflection(db: Session, *, reflection_id: int) -> Feedback:
 
     fb = Feedback(
         reflection_id=reflection_id,
-        ia_generated_content=generated.get("feedback"),
-        ia_neuro_nutrition_tip=generated.get("neuro_tip"),
-        ia_activity_suggestion=generated.get("activity"),
+        ia_generated_content=encrypt_text(generated.get("feedback")),
+        ia_neuro_nutrition_tip=encrypt_text(generated.get("neuro_tip")),
+        ia_activity_suggestion=encrypt_text(generated.get("activity")),
         status=STATUS_PENDING,
     )
 
@@ -262,7 +278,7 @@ def generate_for_reflection(db: Session, *, reflection_id: int) -> Feedback:
             f"✅ [generate_for_reflection] Feedback criado | "
             f"feedback_id={fb.id} reflection_id={fb.reflection_id} status={fb.status}"
         )
-        return fb
+        return _serialize_feedback(fb)
 
     except IntegrityError:
         db.rollback()
@@ -281,7 +297,7 @@ def generate_for_reflection(db: Session, *, reflection_id: int) -> Feedback:
                 f"✅ [generate_for_reflection] Feedback recuperado após rollback | "
                 f"feedback_id={fb2.id} reflection_id={fb2.reflection_id}"
             )
-            return fb2
+            return _serialize_feedback(fb2)
         raise
 
 
@@ -295,7 +311,7 @@ def list_pending(db: Session) -> list[Feedback]:
     )
 
     print(f"📋 [list_pending] total={len(rows)}")
-    return rows
+    return [_serialize_feedback(row) for row in rows]
 
 
 def approve(
@@ -322,22 +338,22 @@ def approve(
 
     if fb.status == STATUS_APPROVED:
         print(f"ℹ️ [approve] Feedback já estava aprovado | feedback_id={fb.id}")
-        return fb
+        return _serialize_feedback(fb)
 
     if getattr(update_data, "ia_generated_content", None) is not None:
-        fb.ia_generated_content = update_data.ia_generated_content
+        fb.ia_generated_content = encrypt_text(update_data.ia_generated_content)
         print(f"✏️ [approve] ia_generated_content atualizado | feedback_id={fb.id}")
 
     if getattr(update_data, "ia_neuro_nutrition_tip", None) is not None:
-        fb.ia_neuro_nutrition_tip = update_data.ia_neuro_nutrition_tip
+        fb.ia_neuro_nutrition_tip = encrypt_text(update_data.ia_neuro_nutrition_tip)
         print(f"✏️ [approve] ia_neuro_nutrition_tip atualizado | feedback_id={fb.id}")
 
     if getattr(update_data, "ia_activity_suggestion", None) is not None:
-        fb.ia_activity_suggestion = update_data.ia_activity_suggestion
+        fb.ia_activity_suggestion = encrypt_text(update_data.ia_activity_suggestion)
         print(f"✏️ [approve] ia_activity_suggestion atualizado | feedback_id={fb.id}")
 
     if getattr(update_data, "therapist_notes", None) is not None:
-        fb.therapist_notes = update_data.therapist_notes
+        fb.therapist_notes = encrypt_text(update_data.therapist_notes)
         print(f"✏️ [approve] therapist_notes atualizado | feedback_id={fb.id}")
 
     fb.status = STATUS_APPROVED
@@ -360,7 +376,7 @@ def approve(
 
     _notify_client_feedback_approved(db, feedback=fb)
 
-    return fb
+    return _serialize_feedback(fb)
 
 
 def reject(
@@ -385,7 +401,7 @@ def reject(
     fb.status = STATUS_REJECTED
     fb.therapist_approved_by = therapist_id
     fb.approved_at = None
-    fb.therapist_notes = notes
+    fb.therapist_notes = encrypt_text(notes)
 
     db.commit()
     db.refresh(fb)
@@ -394,7 +410,7 @@ def reject(
         f"✅ [reject] Feedback rejeitado | "
         f"feedback_id={fb.id} reflection_id={fb.reflection_id}"
     )
-    return fb
+    return _serialize_feedback(fb)
 
 
 def get_by_reflection_for_client(
@@ -450,7 +466,7 @@ def get_by_reflection_for_client(
         f"✅ [get_by_reflection_for_client] Feedback aprovado encontrado | "
         f"feedback_id={fb.id} reflection_id={reflection_id}"
     )
-    return fb
+    return _serialize_feedback(fb)
 
 
 def get_by_reflection_for_therapist(
@@ -482,7 +498,7 @@ def get_by_reflection_for_therapist(
         f"✅ [get_by_reflection_for_therapist] Feedback encontrado | "
         f"feedback_id={fb.id} reflection_id={reflection_id} status={fb.status}"
     )
-    return fb
+    return _serialize_feedback(fb)
 
 
 def list_by_client_for_therapist(
@@ -510,4 +526,4 @@ def list_by_client_for_therapist(
         f"📋 [list_by_client_for_therapist] client_id={client_id} "
         f"statuses={statuses} total={len(rows)}"
     )
-    return rows
+    return [_serialize_feedback(row) for row in rows]

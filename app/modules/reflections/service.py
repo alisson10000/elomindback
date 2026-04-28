@@ -5,6 +5,7 @@ import asyncio
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, and_
 
+from app.core.crypto import decrypt_text, encrypt_text
 from app.modules.reflections.model import Reflection
 from app.modules.feedback.model import Feedback
 from app.modules.users.model import User
@@ -39,6 +40,20 @@ def get_therapist_by_client_id(db: Session, client_id: int):
     return therapist
 
 
+def _serialize_reflection(ref: Reflection) -> dict:
+    return {
+        "id": ref.id,
+        "client_id": ref.client_id,
+        "therapist_id": ref.therapist_id,
+        "feeling_after_session": decrypt_text(ref.feeling_after_session),
+        "what_learned": decrypt_text(ref.what_learned),
+        "positive_point": decrypt_text(ref.positive_point),
+        "resistance_or_disagreement": decrypt_text(ref.resistance_or_disagreement),
+        "created_at": ref.created_at,
+        "updated_at": ref.updated_at,
+    }
+
+
 # -------------------------
 # CLIENT
 # -------------------------
@@ -58,10 +73,10 @@ def create_reflection(db: Session, client_id: int, data):
     ref = Reflection(
         client_id=client_id,
         therapist_id=therapist.id if therapist else None,
-        feeling_after_session=data.feeling_after_session,
-        what_learned=data.what_learned,
-        positive_point=data.positive_point,
-        resistance_or_disagreement=getattr(data, "resistance_or_disagreement", None),
+        feeling_after_session=encrypt_text(data.feeling_after_session),
+        what_learned=encrypt_text(data.what_learned),
+        positive_point=encrypt_text(data.positive_point),
+        resistance_or_disagreement=encrypt_text(getattr(data, "resistance_or_disagreement", None)),
     )
 
     print(
@@ -126,7 +141,7 @@ def create_reflection(db: Session, client_id: int, data):
     print(f"🏁 [create_reflection] Finalizado | reflection_id={ref.id}")
     print("=" * 80 + "\n")
 
-    return ref  # bate com ReflectionOut via from_attributes
+    return _serialize_reflection(ref)
 
 
 def list_my_reflections_with_delete_flag(db: Session, client_id: int):
@@ -156,10 +171,10 @@ def list_my_reflections_with_delete_flag(db: Session, client_id: int):
                 "id": ref.id,
                 "client_id": ref.client_id,
                 "therapist_id": ref.therapist_id,
-                "feeling_after_session": ref.feeling_after_session,
-                "what_learned": ref.what_learned,
-                "positive_point": ref.positive_point,
-                "resistance_or_disagreement": ref.resistance_or_disagreement,
+                "feeling_after_session": decrypt_text(ref.feeling_after_session),
+                "what_learned": decrypt_text(ref.what_learned),
+                "positive_point": decrypt_text(ref.positive_point),
+                "resistance_or_disagreement": decrypt_text(ref.resistance_or_disagreement),
                 "created_at": ref.created_at,
                 "updated_at": ref.updated_at,
                 "can_delete": last_approved_at is None,
@@ -264,10 +279,10 @@ def update_reflection(db: Session, reflection_id: int, client_id: int, data):
         )
         raise ValueError("Não é possível editar: já existe feedback aprovado.")
 
-    ref.feeling_after_session = data.feeling_after_session
-    ref.what_learned = data.what_learned
-    ref.positive_point = data.positive_point
-    ref.resistance_or_disagreement = getattr(data, "resistance_or_disagreement", None)
+    ref.feeling_after_session = encrypt_text(data.feeling_after_session)
+    ref.what_learned = encrypt_text(data.what_learned)
+    ref.positive_point = encrypt_text(data.positive_point)
+    ref.resistance_or_disagreement = encrypt_text(getattr(data, "resistance_or_disagreement", None))
 
     if ref.therapist_id is None:
         print(
@@ -293,7 +308,7 @@ def update_reflection(db: Session, reflection_id: int, client_id: int, data):
         f"reflection_id={ref.id} updated_at={ref.updated_at}"
     )
 
-    return ref
+    return _serialize_reflection(ref)
 
 
 # -------------------------
@@ -328,10 +343,10 @@ def get_reflection_detail_for_therapist(db: Session, reflection_id: int):
         "client_id": ref.client_id,
         "therapist_id": ref.therapist_id,
         "client_name": client_name,
-        "feeling_after_session": ref.feeling_after_session,
-        "what_learned": ref.what_learned,
-        "positive_point": ref.positive_point,
-        "resistance_or_disagreement": ref.resistance_or_disagreement,
+        "feeling_after_session": decrypt_text(ref.feeling_after_session),
+        "what_learned": decrypt_text(ref.what_learned),
+        "positive_point": decrypt_text(ref.positive_point),
+        "resistance_or_disagreement": decrypt_text(ref.resistance_or_disagreement),
         "created_at": ref.created_at,
         "updated_at": ref.updated_at,
     }
@@ -377,7 +392,7 @@ def list_pending_reflections(db: Session):
                 "client_id": ref.client_id,
                 "therapist_id": ref.therapist_id,
                 "client_name": client_name,
-                "feeling_after_session": ref.feeling_after_session,
+                "feeling_after_session": decrypt_text(ref.feeling_after_session),
                 "created_at": ref.created_at,
             }
         )

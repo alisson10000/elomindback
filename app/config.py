@@ -25,6 +25,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 # ===========================
+# FIELD ENCRYPTION
+# ===========================
+FIELD_ENCRYPTION_KEY = os.getenv("FIELD_ENCRYPTION_KEY")
+
+# ===========================
 # EMAIL / SMTP
 # ===========================
 SMTP_USER = os.getenv("SMTP_USER")

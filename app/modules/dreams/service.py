@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.crypto import decrypt_text, encrypt_text
 from app.modules.dreams.model import Dream
 from app.modules.therapist_clients.model import TherapistClient
 
@@ -55,6 +56,19 @@ def _get_dream_or_404(db: Session, *, dream_id: int) -> Dream:
     return d
 
 
+def _serialize_dream(dream: Dream) -> dict:
+    return {
+        "id": dream.id,
+        "client_id": dream.client_id,
+        "therapist_id": dream.therapist_id,
+        "description": decrypt_text(dream.description),
+        "therapist_tags": decrypt_text(dream.therapist_tags),
+        "therapist_notes": decrypt_text(dream.therapist_notes),
+        "created_at": dream.created_at,
+        "updated_at": dream.updated_at,
+    }
+
+
 # ======================
 # CLIENT
 # ======================
@@ -71,12 +85,12 @@ def create_dream(db: Session, *, client_id: int, description: str) -> Dream:
     dream = Dream(
         client_id=client_id,
         therapist_id=therapist_id,
-        description=text,
+        description=encrypt_text(text),
     )
     db.add(dream)
     db.commit()
     db.refresh(dream)
-    return dream
+    return {"id": dream.id, "created_at": dream.created_at}
 
 
 # ======================
@@ -85,12 +99,13 @@ def create_dream(db: Session, *, client_id: int, description: str) -> Dream:
 def list_dreams_by_client(db: Session, *, therapist_id: int, client_id: int) -> list[Dream]:
     _ensure_therapist_owns_client(db, therapist_id=therapist_id, client_id=client_id)
 
-    return (
+    rows = (
         db.query(Dream)
         .filter(Dream.client_id == client_id, Dream.therapist_id == therapist_id)
         .order_by(Dream.id.desc())
         .all()
     )
+    return [_serialize_dream(row) for row in rows]
 
 
 def update_dream_as_therapist(
@@ -107,11 +122,11 @@ def update_dream_as_therapist(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     if getattr(update_data, "therapist_tags", None) is not None:
-        dream.therapist_tags = update_data.therapist_tags
+        dream.therapist_tags = encrypt_text(update_data.therapist_tags)
 
     if getattr(update_data, "therapist_notes", None) is not None:
-        dream.therapist_notes = update_data.therapist_notes
+        dream.therapist_notes = encrypt_text(update_data.therapist_notes)
 
     db.commit()
     db.refresh(dream)
-    return dream
+    return _serialize_dream(dream)
