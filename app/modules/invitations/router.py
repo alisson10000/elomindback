@@ -18,6 +18,7 @@ from app.modules.invitations.service import (
 )
 
 from app.modules.users.schemas import UserOut
+from app.modules.users.service import serialize_user
 from app.core.email import send_email
 
 router = APIRouter(prefix="/invitations", tags=["Invitations"])
@@ -73,4 +74,4 @@ def signup_from_invitation_route(
     if not user:
         raise HTTPException(400, "Invalid or expired invite")
 
-    return user
+    return serialize_user(user)

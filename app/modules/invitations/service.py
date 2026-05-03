@@ -10,6 +10,7 @@ from app.modules.therapist_clients.service import link_therapist_client
 
 from app.core.security import hash_password
 from app.core.invite_tokens import generate_invite_token, hash_invite_token
+from utils.security import normalize_email
 
 INVITE_TTL_DAYS = 3
 
@@ -25,7 +26,7 @@ def get_active_invitation_by_email(db: Session, *, therapist_id: int, email: str
         db.query(Invitation)
         .filter(
             Invitation.therapist_id == therapist_id,
-            Invitation.email == email.lower().strip(),
+            Invitation.email == normalize_email(email),
             Invitation.used_at.is_(None),
             Invitation.expires_at > now,
         )
@@ -48,7 +49,7 @@ def create_invitation(
     - Se já existir convite ativo (não usado e não expirado) -> cria um novo token (reenvio) OU retorna erro
       (aqui eu escolhi REGERAR um novo convite para simplificar reenvio)
     """
-    normalized_email = email.lower().strip()
+    normalized_email = normalize_email(email)
 
     # 1) Se já existe usuário com esse email, não faz sentido convidar
     if get_user_by_email(db, email=normalized_email):
@@ -107,7 +108,7 @@ def signup_from_invitation(
     if not inv:
         return None
 
-    email = inv.email.lower().strip()
+    email = normalize_email(inv.email)
 
     # Se já existe usuário com esse email, bloqueia
     if get_user_by_email(db, email=email):

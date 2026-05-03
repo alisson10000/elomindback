@@ -5,6 +5,7 @@ from app.db.session import get_db
 from app.core.deps import get_current_user
 from app.modules.auth.schemas import SignupIn, LoginIn, TokenOut, MeOut
 from app.modules.auth.service import signup, login
+from app.modules.users.service import serialize_user
 
 router = APIRouter()
 
@@ -26,4 +27,4 @@ def login_route(payload: LoginIn, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=MeOut)
 def me_route(user=Depends(get_current_user)):
-    return user
+    return serialize_user(user)

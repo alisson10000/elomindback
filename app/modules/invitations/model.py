@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, func
-from app.db.base import Base
+from app.db.base_class import Base
 
 
 class Invitation(Base):

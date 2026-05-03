@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.core.deps import get_current_user
 from app.modules.users.schemas import UserOut, UserStatusUpdate
-from app.modules.users.service import get_user_by_id, list_clients, set_user_active
+from app.modules.users.service import get_user_by_id, list_clients, serialize_user, set_user_active
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -20,7 +20,7 @@ def list_clients_route(
     db: Session = Depends(get_db),
     _: object = Depends(require_therapist),
 ):
-    return list_clients(db)
+    return [serialize_user(user) for user in list_clients(db)]
 
 
 @router.patch("/{user_id}/status", response_model=UserOut)
@@ -40,4 +40,5 @@ def update_user_status_route(
     if target.role != "client":
         raise HTTPException(status_code=400, detail="Only clients can be activated/deactivated")
 
-    return set_user_active(db, user=target, is_active=payload.is_active)
+    updated = set_user_active(db, user=target, is_active=payload.is_active)
+    return serialize_user(updated)

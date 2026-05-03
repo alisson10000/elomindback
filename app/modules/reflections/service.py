@@ -2,22 +2,20 @@ from __future__ import annotations
 
 import asyncio
 
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, func, and_
 
 from app.core.crypto import decrypt_text, encrypt_text
-from app.modules.reflections.model import Reflection
 from app.modules.feedback.model import Feedback
-from app.modules.users.model import User
-from app.modules.therapist_clients.model import TherapistClient
 from app.modules.push_tokens.service import get_user_push_tokens, send_expo_push
+from app.modules.reflections.model import Reflection
+from app.modules.therapist_clients.model import TherapistClient
+from app.modules.users.model import User
+from app.modules.users.service import serialize_user
 
 
-# -------------------------
-# HELPERS
-# -------------------------
 def get_therapist_by_client_id(db: Session, client_id: int):
-    print(f"🔎 [get_therapist_by_client_id] Buscando terapeuta do client_id={client_id}")
+    print(f"DEBUG [get_therapist_by_client_id] client_id={client_id}")
 
     therapist = (
         db.query(User)
@@ -30,12 +28,9 @@ def get_therapist_by_client_id(db: Session, client_id: int):
     )
 
     if therapist:
-        print(
-            f"✅ [get_therapist_by_client_id] Terapeuta encontrado: "
-            f"id={therapist.id} nome={getattr(therapist, 'name', None)}"
-        )
+        print(f"INFO [get_therapist_by_client_id] therapist_id={therapist.id}")
     else:
-        print(f"⚠️ [get_therapist_by_client_id] Nenhum terapeuta encontrado para client_id={client_id}")
+        print(f"WARN [get_therapist_by_client_id] therapist not found for client_id={client_id}")
 
     return therapist
 
@@ -54,18 +49,11 @@ def _serialize_reflection(ref: Reflection) -> dict:
     }
 
 
-# -------------------------
-# CLIENT
-# -------------------------
 def create_reflection(db: Session, client_id: int, data):
     print("\n" + "=" * 80)
-    print(f"🟡 [create_reflection] Iniciando criação de reflexão | client_id={client_id}")
+    print(f"DEBUG [create_reflection] start client_id={client_id}")
     print(
-        f"📦 [create_reflection] Payload recebido: "
-        f"feeling_after_session={getattr(data, 'feeling_after_session', None)!r}, "
-        f"what_learned={getattr(data, 'what_learned', None)!r}, "
-        f"positive_point={getattr(data, 'positive_point', None)!r}, "
-        f"resistance_or_disagreement={getattr(data, 'resistance_or_disagreement', None)!r}"
+        "DEBUG [create_reflection] payload received for encrypted reflection fields"
     )
 
     therapist = get_therapist_by_client_id(db, client_id)
@@ -80,40 +68,37 @@ def create_reflection(db: Session, client_id: int, data):
     )
 
     print(
-        f"📝 [create_reflection] Reflection montada: "
-        f"client_id={ref.client_id}, therapist_id={ref.therapist_id}"
+        f"DEBUG [create_reflection] prepared reflection client_id={ref.client_id} "
+        f"therapist_id={ref.therapist_id}"
     )
 
     db.add(ref)
-    print("💾 [create_reflection] Salvando reflexão no banco...")
+    print("DEBUG [create_reflection] saving reflection")
     db.commit()
     db.refresh(ref)
 
     print(
-        f"✅ [create_reflection] Reflexão criada com sucesso | "
-        f"id={ref.id} created_at={ref.created_at} therapist_id={ref.therapist_id}"
+        f"INFO [create_reflection] created reflection_id={ref.id} "
+        f"therapist_id={ref.therapist_id}"
     )
 
-    # Notificação para o terapeuta quando o cliente cria uma nova reflexão
     if therapist:
-        print(f"🔔 [create_reflection] Terapeuta existe, iniciando busca de push tokens | therapist_id={therapist.id}")
+        print(f"DEBUG [create_reflection] loading push tokens therapist_id={therapist.id}")
 
         tokens = get_user_push_tokens(db, therapist.id)
-        print(f"📱 [create_reflection] Tokens encontrados para therapist_id={therapist.id}: {tokens}")
+        print(
+            f"DEBUG [create_reflection] push tokens loaded therapist_id={therapist.id} "
+            f"count={len(tokens) if tokens else 0}"
+        )
 
         if tokens:
             try:
-                print(
-                    f"📤 [create_reflection] Enviando push da reflexão id={ref.id} "
-                    f"para therapist_id={therapist.id}"
-                )
-
                 asyncio.run(
                     send_expo_push(
                         db=db,
                         push_tokens=tokens,
-                        title="Nova reflexão recebida",
-                        body="Um cliente enviou uma nova reflexão pós-sessão.",
+                        title="Nova reflexÃ£o recebida",
+                        body="Um cliente enviou uma nova reflexÃ£o pÃ³s-sessÃ£o.",
                         data={
                             "type": "new_reflection",
                             "reflection_id": ref.id,
@@ -123,29 +108,23 @@ def create_reflection(db: Session, client_id: int, data):
                     )
                 )
 
-                print(f"✅ [create_reflection] Push enviado com sucesso para reflexão id={ref.id}")
+                print(f"INFO [create_reflection] push sent reflection_id={ref.id}")
 
-            except Exception as e:
-                print(f"❌ [create_reflection] Falha ao enviar push da reflexão {ref.id}: {e}")
+            except Exception as exc:
+                print(f"ERROR [create_reflection] push failed reflection_id={ref.id}: {exc}")
         else:
-            print(
-                f"⚠️ [create_reflection] Nenhum push token ativo encontrado "
-                f"para therapist_id={therapist.id}"
-            )
+            print(f"WARN [create_reflection] no active push tokens therapist_id={therapist.id}")
     else:
-        print(
-            f"⚠️ [create_reflection] Push não enviado porque nenhum terapeuta foi encontrado "
-            f"para client_id={client_id}"
-        )
+        print(f"WARN [create_reflection] therapist not found for client_id={client_id}")
 
-    print(f"🏁 [create_reflection] Finalizado | reflection_id={ref.id}")
+    print(f"INFO [create_reflection] finished reflection_id={ref.id}")
     print("=" * 80 + "\n")
 
     return _serialize_reflection(ref)
 
 
 def list_my_reflections_with_delete_flag(db: Session, client_id: int):
-    print(f"🟡 [list_my_reflections_with_delete_flag] Listando reflexões do client_id={client_id}")
+    print(f"DEBUG [list_my_reflections_with_delete_flag] client_id={client_id}")
 
     approved_sq = (
         db.query(
@@ -181,17 +160,12 @@ def list_my_reflections_with_delete_flag(db: Session, client_id: int):
             }
         )
 
-    print(
-        f"✅ [list_my_reflections_with_delete_flag] Total encontrado para client_id={client_id}: {len(items)}"
-    )
+    print(f"INFO [list_my_reflections_with_delete_flag] count={len(items)} client_id={client_id}")
     return items
 
 
 def delete_reflection(db: Session, reflection_id: int, client_id: int):
-    print(
-        f"🟡 [delete_reflection] Tentando excluir reflection_id={reflection_id} "
-        f"do client_id={client_id}"
-    )
+    print(f"DEBUG [delete_reflection] reflection_id={reflection_id} client_id={client_id}")
 
     ref = (
         db.query(Reflection)
@@ -200,10 +174,7 @@ def delete_reflection(db: Session, reflection_id: int, client_id: int):
     )
 
     if not ref:
-        print(
-            f"⚠️ [delete_reflection] Reflexão não encontrada | "
-            f"reflection_id={reflection_id} client_id={client_id}"
-        )
+        print(f"WARN [delete_reflection] reflection not found reflection_id={reflection_id}")
         return False
 
     approved_exists = (
@@ -217,37 +188,19 @@ def delete_reflection(db: Session, reflection_id: int, client_id: int):
     )
 
     if approved_exists:
-        print(
-            f"❌ [delete_reflection] Exclusão bloqueada: já existe feedback aprovado "
-            f"para reflection_id={reflection_id}"
-        )
-        raise ValueError("Não é possível excluir: já existe feedback aprovado.")
+        print(f"ERROR [delete_reflection] approved feedback exists reflection_id={reflection_id}")
+        raise ValueError("NÃ£o Ã© possÃ­vel excluir: jÃ¡ existe feedback aprovado.")
 
     db.delete(ref)
     db.commit()
 
-    print(f"✅ [delete_reflection] Reflexão excluída com sucesso | reflection_id={reflection_id}")
+    print(f"INFO [delete_reflection] deleted reflection_id={reflection_id}")
     return True
 
 
 def update_reflection(db: Session, reflection_id: int, client_id: int, data):
-    """
-    PATCH /reflections/{id}
-    - só o dono (client_id) consegue editar
-    - bloqueia edição se já existir feedback aprovado
-    - updated_at é atualizado pelo onupdate do model
-    """
-    print(
-        f"🟡 [update_reflection] Iniciando atualização | "
-        f"reflection_id={reflection_id} client_id={client_id}"
-    )
-    print(
-        f"📦 [update_reflection] Payload recebido: "
-        f"feeling_after_session={getattr(data, 'feeling_after_session', None)!r}, "
-        f"what_learned={getattr(data, 'what_learned', None)!r}, "
-        f"positive_point={getattr(data, 'positive_point', None)!r}, "
-        f"resistance_or_disagreement={getattr(data, 'resistance_or_disagreement', None)!r}"
-    )
+    print(f"DEBUG [update_reflection] reflection_id={reflection_id} client_id={client_id}")
+    print("DEBUG [update_reflection] payload received for encrypted reflection fields")
 
     ref = (
         db.query(Reflection)
@@ -256,10 +209,7 @@ def update_reflection(db: Session, reflection_id: int, client_id: int, data):
     )
 
     if not ref:
-        print(
-            f"⚠️ [update_reflection] Reflexão não encontrada | "
-            f"reflection_id={reflection_id} client_id={client_id}"
-        )
+        print(f"WARN [update_reflection] reflection not found reflection_id={reflection_id}")
         return None
 
     approved_exists = (
@@ -273,11 +223,8 @@ def update_reflection(db: Session, reflection_id: int, client_id: int, data):
     )
 
     if approved_exists:
-        print(
-            f"❌ [update_reflection] Edição bloqueada: já existe feedback aprovado "
-            f"para reflection_id={reflection_id}"
-        )
-        raise ValueError("Não é possível editar: já existe feedback aprovado.")
+        print(f"ERROR [update_reflection] approved feedback exists reflection_id={reflection_id}")
+        raise ValueError("NÃ£o Ã© possÃ­vel editar: jÃ¡ existe feedback aprovado.")
 
     ref.feeling_after_session = encrypt_text(data.feeling_after_session)
     ref.what_learned = encrypt_text(data.what_learned)
@@ -285,58 +232,38 @@ def update_reflection(db: Session, reflection_id: int, client_id: int, data):
     ref.resistance_or_disagreement = encrypt_text(getattr(data, "resistance_or_disagreement", None))
 
     if ref.therapist_id is None:
-        print(
-            f"🔎 [update_reflection] Reflection sem therapist_id. "
-            f"Buscando terapeuta para client_id={client_id}"
-        )
         therapist = get_therapist_by_client_id(db, client_id)
         if therapist:
             ref.therapist_id = therapist.id
-            print(
-                f"✅ [update_reflection] therapist_id definido automaticamente: {therapist.id}"
-            )
+            print(f"INFO [update_reflection] therapist linked therapist_id={therapist.id}")
         else:
-            print(
-                f"⚠️ [update_reflection] Nenhum terapeuta encontrado para client_id={client_id}"
-            )
+            print(f"WARN [update_reflection] therapist not found for client_id={client_id}")
 
     db.commit()
     db.refresh(ref)
 
-    print(
-        f"✅ [update_reflection] Reflexão atualizada com sucesso | "
-        f"reflection_id={ref.id} updated_at={ref.updated_at}"
-    )
-
+    print(f"INFO [update_reflection] updated reflection_id={ref.id}")
     return _serialize_reflection(ref)
 
 
-# -------------------------
-# THERAPIST
-# -------------------------
 def get_reflection_detail_for_therapist(db: Session, reflection_id: int):
-    print(f"🟡 [get_reflection_detail_for_therapist] Buscando detalhes | reflection_id={reflection_id}")
+    print(f"DEBUG [get_reflection_detail_for_therapist] reflection_id={reflection_id}")
 
     row = (
-        db.query(Reflection, User.name)
+        db.query(Reflection, User)
         .join(User, User.id == Reflection.client_id)
         .filter(Reflection.id == reflection_id)
         .first()
     )
 
     if not row:
-        print(
-            f"⚠️ [get_reflection_detail_for_therapist] Reflexão não encontrada | "
-            f"reflection_id={reflection_id}"
-        )
+        print(f"WARN [get_reflection_detail_for_therapist] reflection not found reflection_id={reflection_id}")
         return None
 
-    ref, client_name = row
+    ref, client = row
+    client_name = serialize_user(client)["name"]
 
-    print(
-        f"✅ [get_reflection_detail_for_therapist] Detalhe encontrado | "
-        f"reflection_id={ref.id} client_name={client_name}"
-    )
+    print(f"INFO [get_reflection_detail_for_therapist] found reflection_id={ref.id}")
 
     return {
         "id": ref.id,
@@ -353,12 +280,7 @@ def get_reflection_detail_for_therapist(db: Session, reflection_id: int):
 
 
 def list_pending_reflections(db: Session):
-    """
-    Pendentes = reflection sem feedback aprovado.
-    Evita duplicar quando existe mais de um feedback por reflection,
-    pegando apenas o último feedback (por created_at).
-    """
-    print("🟡 [list_pending_reflections] Listando reflexões pendentes")
+    print("DEBUG [list_pending_reflections] listing pending reflections")
 
     last_fb_sq = (
         db.query(
@@ -370,7 +292,7 @@ def list_pending_reflections(db: Session):
     )
 
     q = (
-        db.query(Reflection, User.name, Feedback.status)
+        db.query(Reflection, User, Feedback.status)
         .join(User, User.id == Reflection.client_id)
         .outerjoin(last_fb_sq, last_fb_sq.c.rid == Reflection.id)
         .outerjoin(
@@ -385,7 +307,8 @@ def list_pending_reflections(db: Session):
     )
 
     items = []
-    for ref, client_name, fb_status in q.all():
+    for ref, client, fb_status in q.all():
+        client_name = serialize_user(client)["name"]
         items.append(
             {
                 "id": ref.id,
@@ -397,5 +320,5 @@ def list_pending_reflections(db: Session):
             }
         )
 
-    print(f"✅ [list_pending_reflections] Total pendentes: {len(items)}")
+    print(f"INFO [list_pending_reflections] total={len(items)}")
     return items

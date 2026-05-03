@@ -1,6 +1,4 @@
-from sqlalchemy.orm import declarative_base
-
-Base = declarative_base()
+from app.db.base_class import Base
 
 # Importa models aqui para registrar no metadata
 

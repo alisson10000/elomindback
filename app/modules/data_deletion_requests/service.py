@@ -16,6 +16,7 @@ from app.modules.anamnesis.model import Anamnesis
 from app.modules.consents.model import Consent
 from app.modules.therapist_clients.model import TherapistClient
 from app.modules.users.model import User
+from app.modules.users.service import serialize_user
 
 
 def _utcnow() -> datetime:
@@ -45,10 +46,12 @@ def create_data_deletion_request(db: Session, *, client: User) -> DataDeletionRe
             detail="There is already a pending deletion request",
         )
 
+    client_data = serialize_user(client)
+
     req = DataDeletionRequest(
         client_id=client.id,
-        client_email=getattr(client, "email", None),
-        client_name=getattr(client, "name", None),
+        client_email=client_data["email"],
+        client_name=client_data["name"],
         status="pending",
         requested_at=_utcnow(),
     )

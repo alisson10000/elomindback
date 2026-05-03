@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, Text, ForeignKey, DateTime, func, UniqueConstraint
 from sqlalchemy.orm import relationship
 
-from app.db.base import Base
+from app.db.base_class import Base
 
 
 class Anamnesis(Base):
