@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
+from app.modules.audit.service import log_action
 from app.modules.data_deletion_requests.model import DataDeletionRequest
 from app.modules.feedback.model import Feedback
 from app.modules.reflections.model import Reflection
@@ -38,7 +39,13 @@ def _get_pending_request(db: Session, *, client_id: int) -> DataDeletionRequest 
 # ======================
 # Client-facing (MVP)
 # ======================
-def create_data_deletion_request(db: Session, *, client: User) -> DataDeletionRequest:
+def create_data_deletion_request(
+    db: Session,
+    *,
+    client: User,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+) -> DataDeletionRequest:
     pending = _get_pending_request(db, client_id=client.id)
     if pending:
         raise HTTPException(
@@ -59,6 +66,16 @@ def create_data_deletion_request(db: Session, *, client: User) -> DataDeletionRe
     db.add(req)
     db.commit()
     db.refresh(req)
+    log_action(
+        db,
+        user_id=client.id,
+        action="DATA_DELETION_REQUEST",
+        resource_type="data_deletion_request",
+        resource_id=req.id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        details={"client_id": client.id, "status": req.status, "email": client_data["email"], "name": client_data["name"]},
+    )
     return req
 
 

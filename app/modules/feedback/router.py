@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.db.session import get_db
+from app.modules.audit.service import get_client_ip, get_user_agent
 from app.modules.feedback.schemas import (
     FeedbackApproveIn,
     FeedbackOut,
@@ -23,9 +24,6 @@ from app.modules.feedback.service import (
 router = APIRouter(tags=["Feedback"])
 
 
-# ======================
-# Auth helper
-# ======================
 def require_role(role: str):
     def _dep(user=Depends(get_current_user)):
         if getattr(user, "role", None) != role:
@@ -38,16 +36,12 @@ def require_role(role: str):
     return _dep
 
 
-# ======================
-# Routes
-# ======================
 @router.post("/generate/{reflection_id}", response_model=FeedbackOut, status_code=status.HTTP_201_CREATED)
 def generate(
     reflection_id: int,
     db: Session = Depends(get_db),
     user=Depends(require_role("therapist")),
 ):
-    # MVP: apenas terapeuta gera
     return generate_for_reflection(db, reflection_id=reflection_id)
 
 
@@ -63,6 +57,7 @@ def pending(
 def approve_route(
     feedback_id: int,
     payload: FeedbackApproveIn,
+    request: Request,
     db: Session = Depends(get_db),
     user=Depends(require_role("therapist")),
 ):
@@ -71,6 +66,8 @@ def approve_route(
         feedback_id=feedback_id,
         therapist_id=user.id,
         update_data=payload,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
     )
 
 
@@ -78,6 +75,7 @@ def approve_route(
 def reject_route(
     feedback_id: int,
     payload: FeedbackRejectIn,
+    request: Request,
     db: Session = Depends(get_db),
     user=Depends(require_role("therapist")),
 ):
@@ -86,10 +84,11 @@ def reject_route(
         feedback_id=feedback_id,
         therapist_id=user.id,
         notes=payload.therapist_notes,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
     )
 
 
-# terapeuta buscar feedback por reflexão (qualquer status)
 @router.get("/therapist/by-reflection/{reflection_id}", response_model=FeedbackOut)
 def therapist_by_reflection(
     reflection_id: int,
@@ -102,11 +101,10 @@ def therapist_by_reflection(
     )
 
 
-# lista feedbacks do cliente (por padrão approved+rejected)
 @router.get("/by-client/{client_id}", response_model=list[FeedbackOut])
 def by_client(
     client_id: int,
-    status: str | None = None,  # ex: "approved,rejected"
+    status: str | None = None,
     db: Session = Depends(get_db),
     user=Depends(require_role("therapist")),
 ):
@@ -121,7 +119,6 @@ def by_client(
     )
 
 
-# client-only (só approved e só se a reflexão é dele)
 @router.get("/by-reflection/{reflection_id}", response_model=FeedbackOut)
 def client_by_reflection(
     reflection_id: int,

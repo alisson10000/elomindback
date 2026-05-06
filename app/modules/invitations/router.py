@@ -1,25 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app.db.session import get_db
 from app.core.deps import get_current_user
-
+from app.core.email import send_email
+from app.db.session import get_db
+from app.modules.audit.service import get_client_ip, get_user_agent
 from app.modules.invitations.schemas import (
     InviteCreate,
     InviteResponse,
     InviteValidateResponse,
     SignupFromInvite,
 )
-
 from app.modules.invitations.service import (
     create_invitation,
-    validate_invitation,
     signup_from_invitation,
+    validate_invitation,
 )
-
 from app.modules.users.schemas import UserOut
 from app.modules.users.service import serialize_user
-from app.core.email import send_email
 
 router = APIRouter(prefix="/invitations", tags=["Invitations"])
 
@@ -33,6 +31,7 @@ def require_therapist(user=Depends(get_current_user)):
 @router.post("", response_model=InviteResponse)
 def create_invitation_route(
     payload: InviteCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_therapist),
 ):
@@ -40,12 +39,14 @@ def create_invitation_route(
         db,
         therapist_id=current_user.id,
         email=payload.email,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
     )
 
     send_email(
         to=inv.email,
         subject="Convite para o EloMind",
-        body=f"Seu código de convite é: {token}",
+        body=f"Seu cÃ³digo de convite Ã©: {token}",
     )
 
     return {"ok": True, "email": inv.email}
@@ -62,6 +63,7 @@ def validate_invitation_route(token: str, db: Session = Depends(get_db)):
 @router.post("/signup", response_model=UserOut)
 def signup_from_invitation_route(
     payload: SignupFromInvite,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     user = signup_from_invitation(
@@ -69,6 +71,8 @@ def signup_from_invitation_route(
         token=payload.token,
         name=payload.name,
         password=payload.password,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
     )
 
     if not user:

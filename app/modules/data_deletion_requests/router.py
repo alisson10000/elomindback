@@ -1,10 +1,11 @@
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Header
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.deps import get_current_user
+from app.modules.audit.service import get_client_ip, get_user_agent
 
 from app.modules.data_deletion_requests.schemas import (
     DataDeletionRequestOut,
@@ -27,6 +28,7 @@ def require_client(user=Depends(get_current_user)):
 
 @router.post("/data-deletion-request", response_model=DataDeletionRequestCreateOut)
 def request_data_deletion(
+    request: Request,
     db: Session = Depends(get_db),
     user=Depends(require_client),
 ):
@@ -34,7 +36,12 @@ def request_data_deletion(
     Cliente solicita exclusão total (LGPD).
     Regra: não pode existir outra solicitação pendente.
     """
-    req = create_data_deletion_request(db, client=user)
+    req = create_data_deletion_request(
+        db,
+        client=user,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+    )
     return req
 
 

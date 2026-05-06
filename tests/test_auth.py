@@ -1,7 +1,9 @@
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.orm import Session
 
 from app.core.security import verify_password
+from app.modules.audit.model import AuditLog
 from app.modules.auth.password_reset.service import (
     create_password_reset,
     reset_password_with_token,
@@ -9,6 +11,11 @@ from app.modules.auth.password_reset.service import (
 from app.modules.auth.service import login, signup
 from app.modules.users import service as user_service_module
 from app.modules.users.service import get_user_by_email
+
+
+def _load_single_audit_row(db_session, action: str) -> AuditLog:
+    with Session(bind=db_session.get_bind()) as audit_session:
+        return audit_session.query(AuditLog).filter(AuditLog.action == action).one()
 
 
 def test_login_with_correct_email_works(user_factory, db_session, monkeypatch):
@@ -129,3 +136,28 @@ def test_auth_endpoints_validate_invalid_and_missing_fields(client):
     assert empty_name_signup.status_code == 400
     assert null_login.status_code == 422
     assert empty_email_login.status_code == 422
+
+
+def test_forgot_password_audits_request(client, user_factory, db_session):
+    user = user_factory(email="forgot@example.com", password="StrongPass123")
+    sent = {}
+
+    def fake_send_email(*args, **kwargs):
+        sent["called"] = True
+
+    import app.modules.auth.password_reset.router as password_reset_router
+
+    password_reset_router.send_email = fake_send_email
+
+    response = client.post(
+        "/auth/forgot-password",
+        json={"email": "forgot@example.com"},
+        headers={"User-Agent": "pytest-reset-agent", "X-Forwarded-For": "198.51.100.40"},
+    )
+
+    assert response.status_code == 200
+
+    row = _load_single_audit_row(db_session, "PASSWORD_RESET_REQUEST")
+    assert sent["called"] is True
+    assert row.user_id == user.id
+    assert row.ip_address == "198.51.100.40"

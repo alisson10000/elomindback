@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.deps import get_current_user
+from app.modules.audit.service import get_client_ip, get_user_agent
 
 from app.modules.reflections.schemas import (
     ReflectionCreate,
@@ -49,10 +50,17 @@ def require_therapist(user=Depends(get_current_user)):
 @router.post("/", response_model=ReflectionOut, status_code=status.HTTP_201_CREATED)
 def create(
     payload: ReflectionCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user=Depends(require_client),
 ):
-    return create_reflection(db, client_id=user.id, data=payload)
+    return create_reflection(
+        db,
+        client_id=user.id,
+        data=payload,
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+    )
 
 
 @router.get("/me", response_model=list[ReflectionOutWithFlags])
@@ -67,6 +75,7 @@ def my_history(
 def update_route(
     reflection_id: int,
     payload: ReflectionUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     user=Depends(require_client),
 ):
@@ -76,6 +85,8 @@ def update_route(
             reflection_id=reflection_id,
             client_id=user.id,
             data=payload,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -89,11 +100,18 @@ def update_route(
 @router.delete("/{reflection_id}")
 def delete_route(
     reflection_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user=Depends(require_client),
 ):
     try:
-        ok = delete_reflection(db, reflection_id=reflection_id, client_id=user.id)
+        ok = delete_reflection(
+            db,
+            reflection_id=reflection_id,
+            client_id=user.id,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

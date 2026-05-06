@@ -1,22 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+
 from sqlalchemy.orm import Session
 
-from app.modules.invitations.model import Invitation
-from app.modules.users.model import User
-from app.modules.users.service import get_user_by_email, create_user
-from app.modules.therapist_clients.service import link_therapist_client
-
-from app.core.security import hash_password
 from app.core.invite_tokens import generate_invite_token, hash_invite_token
+from app.core.security import hash_password
+from app.modules.audit.service import log_action
+from app.modules.invitations.model import Invitation
+from app.modules.therapist_clients.service import link_therapist_client
+from app.modules.users.model import User
+from app.modules.users.service import create_user, get_user_by_email
 from utils.security import normalize_email
 
 INVITE_TTL_DAYS = 3
 
 
 def _now_utc() -> datetime:
-    # seu projeto está usando datetime.utcnow(), então mantive o mesmo padrão
     return datetime.utcnow()
 
 
@@ -40,25 +40,17 @@ def create_invitation(
     *,
     therapist_id: int,
     email: str,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> tuple[Invitation, str]:
-    """
-    Cria um convite e retorna (invitation, token_puro).
-
-    Regras MVP:
-    - Se o e-mail já for usuário cadastrado -> não cria convite
-    - Se já existir convite ativo (não usado e não expirado) -> cria um novo token (reenvio) OU retorna erro
-      (aqui eu escolhi REGERAR um novo convite para simplificar reenvio)
-    """
     normalized_email = normalize_email(email)
 
-    # 1) Se já existe usuário com esse email, não faz sentido convidar
     if get_user_by_email(db, email=normalized_email):
         raise ValueError("Email already registered")
 
-    # 2) Se já existe convite ativo, invalida o anterior e gera outro (reenvio simples)
     active = get_active_invitation_by_email(db, therapist_id=therapist_id, email=normalized_email)
     if active:
-        active.used_at = _now_utc()  # marca como "não mais válido" (não é usado, mas encerra)
+        active.used_at = _now_utc()
         db.commit()
         db.refresh(active)
 
@@ -75,6 +67,16 @@ def create_invitation(
     db.add(inv)
     db.commit()
     db.refresh(inv)
+    log_action(
+        db,
+        user_id=therapist_id,
+        action="INVITATION_CREATED",
+        resource_type="invitation",
+        resource_id=inv.id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        details={"therapist_id": therapist_id, "email": normalized_email},
+    )
     return inv, token
 
 
@@ -100,21 +102,18 @@ def signup_from_invitation(
     token: str,
     name: str,
     password: str,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> User | None:
-    """
-    Usa um convite válido para criar um usuário cliente e vincular ao terapeuta.
-    """
     inv = validate_invitation(db, token=token)
     if not inv:
         return None
 
     email = normalize_email(inv.email)
 
-    # Se já existe usuário com esse email, bloqueia
     if get_user_by_email(db, email=email):
         return None
 
-    # cria usuário cliente
     user = create_user(
         db,
         email=email,
@@ -123,12 +122,20 @@ def signup_from_invitation(
         password_hash=hash_password(password),
     )
 
-    # vincula terapeuta -> cliente
     link_therapist_client(db, therapist_id=inv.therapist_id, client_id=user.id)
 
-    # marca convite como usado (agora sim, usado de verdade)
     inv.used_at = _now_utc()
     db.commit()
     db.refresh(inv)
+    log_action(
+        db,
+        user_id=user.id,
+        action="INVITATION_USED",
+        resource_type="invitation",
+        resource_id=inv.id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        details={"therapist_id": inv.therapist_id, "client_id": user.id, "email": email, "name": name},
+    )
 
     return user

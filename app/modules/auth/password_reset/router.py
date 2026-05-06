@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.modules.audit.service import get_client_ip, get_user_agent, log_action
 
 from app.modules.auth.password_reset.schemas import (
     ForgotPasswordIn,
@@ -14,18 +15,16 @@ from app.modules.auth.password_reset.service import (
     reset_password_with_token,
 )
 
-# Se existir helper real, usa. Se não existir, cai no print sem quebrar.
 try:
     from app.core.email import send_email  # type: ignore
 except Exception:
     def send_email(*args, **kwargs):
-        print("\n📩 [DEV EMAIL] =====")
+        print("\n[DEV EMAIL] =====")
         print("ARGS:", args)
         print("KWARGS:", kwargs)
-        print("===== [DEV EMAIL] 📩\n")
+        print("===== [DEV EMAIL]\n")
 
 
-# ✅ SEM prefix aqui, porque o main.py já tem prefix no include_router
 router = APIRouter(tags=["Auth"])
 
 
@@ -34,26 +33,37 @@ router = APIRouter(tags=["Auth"])
     response_model=ForgotPasswordOut,
     status_code=status.HTTP_200_OK,
 )
-def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
+def forgot_password(payload: ForgotPasswordIn, request: Request, db: Session = Depends(get_db)):
     """
-    Sempre retorna ok=True para evitar enumeração de emails.
-    Se o email existir, cria token e envia o token/código por email.
+    Sempre retorna ok=True para evitar enumeraÃ§Ã£o de emails.
+    Se o email existir, cria token e envia o token/cÃ³digo por email.
     """
     result = create_password_reset(db, email=payload.email)
+    user = None
 
     if result:
         token_plain, user = result
 
-        subject = "EloMind - Redefinição de senha"
+        subject = "EloMind - RedefiniÃ§Ã£o de senha"
         body = (
-            "Você solicitou redefinição de senha.\n\n"
-            "Use o código/token abaixo no aplicativo para criar uma nova senha:\n\n"
+            "VocÃª solicitou redefiniÃ§Ã£o de senha.\n\n"
+            "Use o cÃ³digo/token abaixo no aplicativo para criar uma nova senha:\n\n"
             f"{token_plain}\n\n"
-            "Se você não solicitou, ignore esta mensagem."
+            "Se vocÃª nÃ£o solicitou, ignore esta mensagem."
         )
 
-        # chamada posicional pra não depender da assinatura do helper
         send_email(user.email, subject, body)
+
+    log_action(
+        db,
+        user_id=getattr(user, "id", None),
+        action="PASSWORD_RESET_REQUEST",
+        resource_type="auth",
+        resource_id=getattr(user, "id", None),
+        ip_address=get_client_ip(request),
+        user_agent=get_user_agent(request),
+        details={"email": payload.email, "user_exists": bool(result)},
+    )
 
     return {"ok": True}
 
@@ -63,7 +73,7 @@ def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
     response_model=ResetPasswordOut,
     status_code=status.HTTP_200_OK,
 )
-def reset_password(payload: ResetPasswordIn, db: Session = Depends(get_db)):
+def reset_password(payload: ResetPasswordIn, request: Request, db: Session = Depends(get_db)):
     """
     Recebe email + token + nova senha e efetiva a troca.
     """
@@ -73,6 +83,14 @@ def reset_password(payload: ResetPasswordIn, db: Session = Depends(get_db)):
             email=payload.email,
             token=payload.token,
             new_password=payload.password,
+        )
+        log_action(
+            db,
+            action="PASSWORD_RESET_SUCCESS",
+            resource_type="auth",
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+            details={"email": payload.email},
         )
         return {"ok": True}
 
@@ -90,7 +108,6 @@ def reset_password(payload: ResetPasswordIn, db: Session = Depends(get_db)):
                 detail="Token already used",
             )
 
-        # Mantém resposta genérica (segurança)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid token",

@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.crypto import decrypt_text, encrypt_text
+from app.modules.audit.service import log_action
 from app.modules.anamnesis.model import Anamnesis
 from app.modules.feedback.model import Feedback
 from app.modules.push_tokens.service import get_user_push_tokens, send_expo_push
@@ -320,6 +321,8 @@ def approve(
     feedback_id: int,
     therapist_id: int,
     update_data,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> Feedback:
     """
     Terapeuta aprova (e pode editar) o feedback da IA.
@@ -374,6 +377,16 @@ def approve(
         f"approved_at={fb.approved_at}"
     )
 
+    log_action(
+        db,
+        user_id=therapist_id,
+        action="FEEDBACK_APPROVED",
+        resource_type="feedback",
+        resource_id=fb.id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        details={"reflection_id": fb.reflection_id, "therapist_id": therapist_id},
+    )
     _notify_client_feedback_approved(db, feedback=fb)
 
     return _serialize_feedback(fb)
@@ -385,6 +398,8 @@ def reject(
     feedback_id: int,
     therapist_id: int,
     notes: str | None,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> Feedback:
     """Terapeuta rejeita o feedback gerado pela IA."""
     print(
@@ -409,6 +424,16 @@ def reject(
     print(
         f"✅ [reject] Feedback rejeitado | "
         f"feedback_id={fb.id} reflection_id={fb.reflection_id}"
+    )
+    log_action(
+        db,
+        user_id=therapist_id,
+        action="FEEDBACK_REJECTED",
+        resource_type="feedback",
+        resource_id=fb.id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        details={"reflection_id": fb.reflection_id, "therapist_id": therapist_id},
     )
     return _serialize_feedback(fb)
 

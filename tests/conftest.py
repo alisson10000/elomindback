@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, make_url
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -25,6 +26,7 @@ from app.core.security import create_access_token, hash_password
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from app.modules.audit.model import AuditLog
 from app.modules.users.model import User
 from app.modules.users.service import create_user
 from utils import security as field_security
@@ -32,6 +34,8 @@ from utils import security as field_security
 
 USE_ENV_DB = os.getenv("ELOMIND_TEST_USE_ENV_DB") == "1"
 KEEP_ENV_TEST_DB = os.getenv("ELOMIND_TEST_KEEP_DB") == "1"
+DIRECT_TEST_DATABASE_URL = os.getenv("ELOMIND_TEST_DATABASE_URL")
+PRESERVE_TEST_DATA = os.getenv("PRESERVE_TEST_DATA") == "1"
 
 
 @pytest.fixture(autouse=True)
@@ -53,6 +57,11 @@ def _build_test_database_url(database_url: str) -> tuple[URL, str]:
     return url.set(database=test_name), test_name
 
 
+def _reset_schema(test_engine) -> None:
+    Base.metadata.drop_all(bind=test_engine)
+    Base.metadata.create_all(bind=test_engine)
+
+
 @pytest.fixture(scope="session")
 def test_engine():
     if not USE_ENV_DB:
@@ -66,7 +75,32 @@ def test_engine():
         return
 
     source_database_url = os.environ["DATABASE_URL"]
+    if DIRECT_TEST_DATABASE_URL:
+        direct_url = make_url(DIRECT_TEST_DATABASE_URL)
+        if direct_url.get_backend_name() == "mysql" and direct_url.database:
+            admin_engine = create_engine(
+                _build_admin_url(DIRECT_TEST_DATABASE_URL),
+                pool_pre_ping=True,
+                isolation_level="AUTOCOMMIT",
+            )
+            try:
+                with admin_engine.connect() as conn:
+                    conn.exec_driver_sql(f"DROP DATABASE IF EXISTS `{direct_url.database}`")
+                    conn.exec_driver_sql(
+                        f"CREATE DATABASE `{direct_url.database}` "
+                        "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                    )
+            finally:
+                admin_engine.dispose()
+
+        engine = create_engine(DIRECT_TEST_DATABASE_URL, pool_pre_ping=True)
+        try:
+            yield engine
+        finally:
+            engine.dispose()
+        return
     test_database_url, test_database_name = _build_test_database_url(source_database_url)
+    created_database = False
     admin_engine = create_engine(
         _build_admin_url(source_database_url),
         pool_pre_ping=True,
@@ -74,12 +108,18 @@ def test_engine():
     )
 
     try:
-        with admin_engine.connect() as conn:
-            conn.exec_driver_sql(f"DROP DATABASE IF EXISTS `{test_database_name}`")
-            conn.exec_driver_sql(
-                f"CREATE DATABASE `{test_database_name}` "
-                "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-            )
+        try:
+            with admin_engine.connect() as conn:
+                conn.exec_driver_sql(f"DROP DATABASE IF EXISTS `{test_database_name}`")
+                conn.exec_driver_sql(
+                    f"CREATE DATABASE `{test_database_name}` "
+                    "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                )
+            created_database = True
+        except OperationalError as exc:
+            message = str(exc).lower()
+            if "access denied" not in message and "1044" not in message:
+                raise
     finally:
         admin_engine.dispose()
 
@@ -88,7 +128,7 @@ def test_engine():
         yield engine
     finally:
         engine.dispose()
-        if not KEEP_ENV_TEST_DB:
+        if created_database and not KEEP_ENV_TEST_DB:
             admin_engine = create_engine(
                 _build_admin_url(source_database_url),
                 pool_pre_ping=True,
@@ -106,14 +146,60 @@ def session_factory(test_engine):
     return sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
+@pytest.fixture(scope="session")
+def preserved_audit_logs(test_engine):
+    rows: list[dict] = []
+    yield rows
+
+    if not PRESERVE_TEST_DATA or not rows:
+        return
+
+    _reset_schema(test_engine)
+
+    session = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=test_engine,
+        expire_on_commit=False,
+    )()
+    try:
+        for row in rows:
+            session.add(AuditLog(**row))
+        session.commit()
+    finally:
+        session.close()
+
+
 @pytest.fixture
-def db_session(test_engine, session_factory):
-    Base.metadata.drop_all(bind=test_engine)
-    Base.metadata.create_all(bind=test_engine)
+def db_session(test_engine, session_factory, preserved_audit_logs):
+    _reset_schema(test_engine)
     session = session_factory()
     try:
         yield session
     finally:
+        if PRESERVE_TEST_DATA:
+            audit_session = sessionmaker(
+                autocommit=False,
+                autoflush=False,
+                bind=test_engine,
+                expire_on_commit=False,
+            )()
+            try:
+                for row in audit_session.query(AuditLog).order_by(AuditLog.id.asc()).all():
+                    preserved_audit_logs.append(
+                        {
+                            "user_id": None,
+                            "action": row.action,
+                            "resource_type": row.resource_type,
+                            "resource_id": row.resource_id,
+                            "ip_address": row.ip_address,
+                            "user_agent": row.user_agent,
+                            "details": row.details,
+                            "created_at": row.created_at,
+                        }
+                    )
+            finally:
+                audit_session.close()
         session.close()
 
 

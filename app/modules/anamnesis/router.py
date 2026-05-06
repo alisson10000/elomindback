@@ -1,13 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.db.session import get_db
 from app.core.deps import get_current_user
+from app.db.session import get_db
+from app.modules.anamnesis.schemas import AnamnesisCreate, AnamnesisOut, AnamnesisUpdate
+from app.modules.anamnesis.service import create_anamnesis, get_anamnesis_by_client, update_anamnesis
+from app.modules.audit.service import get_client_ip, get_user_agent
 
-from app.modules.anamnesis.schemas import AnamnesisCreate, AnamnesisUpdate, AnamnesisOut
-from app.modules.anamnesis.service import get_anamnesis_by_client, create_anamnesis, update_anamnesis
-
-router = APIRouter( tags=["Anamnesis"])
+router = APIRouter(tags=["Anamnesis"])
 
 
 def require_therapist(user=Depends(get_current_user)):
@@ -20,11 +20,19 @@ def require_therapist(user=Depends(get_current_user)):
 def create_route(
     client_id: int,
     payload: AnamnesisCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user=Depends(require_therapist),
 ):
     try:
-        return create_anamnesis(db, therapist_id=user.id, client_id=client_id, summary=payload.summary)
+        return create_anamnesis(
+            db,
+            therapist_id=user.id,
+            client_id=client_id,
+            summary=payload.summary,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+        )
     except PermissionError:
         raise HTTPException(status_code=403, detail="Client not linked to therapist")
     except ValueError as e:
@@ -34,11 +42,18 @@ def create_route(
 @router.get("/{client_id}", response_model=AnamnesisOut)
 def get_route(
     client_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user=Depends(require_therapist),
 ):
     try:
-        row = get_anamnesis_by_client(db, therapist_id=user.id, client_id=client_id)
+        row = get_anamnesis_by_client(
+            db,
+            therapist_id=user.id,
+            client_id=client_id,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+        )
     except PermissionError:
         raise HTTPException(status_code=403, detail="Client not linked to therapist")
 
@@ -51,11 +66,19 @@ def get_route(
 def patch_route(
     client_id: int,
     payload: AnamnesisUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     user=Depends(require_therapist),
 ):
     try:
-        row = update_anamnesis(db, therapist_id=user.id, client_id=client_id, summary=payload.summary)
+        row = update_anamnesis(
+            db,
+            therapist_id=user.id,
+            client_id=client_id,
+            summary=payload.summary,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+        )
     except PermissionError:
         raise HTTPException(status_code=403, detail="Client not linked to therapist")
 

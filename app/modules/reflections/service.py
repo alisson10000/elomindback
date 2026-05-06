@@ -6,6 +6,7 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.crypto import decrypt_text, encrypt_text
+from app.modules.audit.service import log_action
 from app.modules.feedback.model import Feedback
 from app.modules.push_tokens.service import get_user_push_tokens, send_expo_push
 from app.modules.reflections.model import Reflection
@@ -49,7 +50,14 @@ def _serialize_reflection(ref: Reflection) -> dict:
     }
 
 
-def create_reflection(db: Session, client_id: int, data):
+def create_reflection(
+    db: Session,
+    client_id: int,
+    data,
+    *,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+):
     print("\n" + "=" * 80)
     print(f"DEBUG [create_reflection] start client_id={client_id}")
     print(
@@ -120,6 +128,16 @@ def create_reflection(db: Session, client_id: int, data):
     print(f"INFO [create_reflection] finished reflection_id={ref.id}")
     print("=" * 80 + "\n")
 
+    log_action(
+        db,
+        user_id=client_id,
+        action="REFLECTION_CREATED",
+        resource_type="reflection",
+        resource_id=ref.id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        details={"client_id": client_id, "therapist_id": ref.therapist_id},
+    )
     return _serialize_reflection(ref)
 
 
@@ -164,7 +182,14 @@ def list_my_reflections_with_delete_flag(db: Session, client_id: int):
     return items
 
 
-def delete_reflection(db: Session, reflection_id: int, client_id: int):
+def delete_reflection(
+    db: Session,
+    reflection_id: int,
+    client_id: int,
+    *,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+):
     print(f"DEBUG [delete_reflection] reflection_id={reflection_id} client_id={client_id}")
 
     ref = (
@@ -195,10 +220,28 @@ def delete_reflection(db: Session, reflection_id: int, client_id: int):
     db.commit()
 
     print(f"INFO [delete_reflection] deleted reflection_id={reflection_id}")
+    log_action(
+        db,
+        user_id=client_id,
+        action="REFLECTION_DELETED",
+        resource_type="reflection",
+        resource_id=reflection_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        details={"client_id": client_id},
+    )
     return True
 
 
-def update_reflection(db: Session, reflection_id: int, client_id: int, data):
+def update_reflection(
+    db: Session,
+    reflection_id: int,
+    client_id: int,
+    data,
+    *,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+):
     print(f"DEBUG [update_reflection] reflection_id={reflection_id} client_id={client_id}")
     print("DEBUG [update_reflection] payload received for encrypted reflection fields")
 
@@ -243,6 +286,16 @@ def update_reflection(db: Session, reflection_id: int, client_id: int, data):
     db.refresh(ref)
 
     print(f"INFO [update_reflection] updated reflection_id={ref.id}")
+    log_action(
+        db,
+        user_id=client_id,
+        action="REFLECTION_UPDATED",
+        resource_type="reflection",
+        resource_id=ref.id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        details={"client_id": client_id, "therapist_id": ref.therapist_id},
+    )
     return _serialize_reflection(ref)
 
 
