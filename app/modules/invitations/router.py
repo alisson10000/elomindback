@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.core.email import send_email
+from app.core.rate_limit import INVITATION_CREATE_RATE_LIMIT, INVITATION_SIGNUP_RATE_LIMIT, limiter
 from app.db.session import get_db
 from app.modules.audit.service import get_client_ip, get_user_agent
 from app.modules.invitations.schemas import (
@@ -29,9 +30,11 @@ def require_therapist(user=Depends(get_current_user)):
 
 
 @router.post("", response_model=InviteResponse)
+@limiter.limit(INVITATION_CREATE_RATE_LIMIT)
 def create_invitation_route(
     payload: InviteCreate,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     current_user=Depends(require_therapist),
 ):
@@ -61,9 +64,11 @@ def validate_invitation_route(token: str, db: Session = Depends(get_db)):
 
 
 @router.post("/signup", response_model=UserOut)
+@limiter.limit(INVITATION_SIGNUP_RATE_LIMIT)
 def signup_from_invitation_route(
     payload: SignupFromInvite,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ):
     user = signup_from_invitation(

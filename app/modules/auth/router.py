@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.deps import get_current_user
+from app.core.rate_limit import LOGIN_RATE_LIMIT, SIGNUP_RATE_LIMIT, limiter
 from app.modules.audit.service import get_client_ip, get_user_agent, log_action
 from app.modules.auth.schemas import SignupIn, LoginIn, TokenOut, MeOut
 from app.modules.auth.service import signup, login
@@ -12,7 +13,13 @@ router = APIRouter()
 
 
 @router.post("/signup", response_model=TokenOut)
-def signup_route(payload: SignupIn, db: Session = Depends(get_db)):
+@limiter.limit(SIGNUP_RATE_LIMIT)
+def signup_route(
+    request: Request,
+    response: Response,
+    payload: SignupIn,
+    db: Session = Depends(get_db),
+):
     token = signup(
         db,
         email=payload.email,
@@ -24,7 +31,13 @@ def signup_route(payload: SignupIn, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenOut)
-def login_route(payload: LoginIn, request: Request, db: Session = Depends(get_db)):
+@limiter.limit(LOGIN_RATE_LIMIT)
+def login_route(
+    payload: LoginIn,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
     token = login(
         db,
         email=payload.email,

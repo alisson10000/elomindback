@@ -1,7 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.core.rate_limit import (
+    PASSWORD_RESET_CONFIRM_RATE_LIMIT,
+    PASSWORD_RESET_REQUEST_RATE_LIMIT,
+    limiter,
+)
 from app.modules.audit.service import get_client_ip, get_user_agent, log_action
 
 from app.modules.auth.password_reset.schemas import (
@@ -33,7 +38,13 @@ router = APIRouter(tags=["Auth"])
     response_model=ForgotPasswordOut,
     status_code=status.HTTP_200_OK,
 )
-def forgot_password(payload: ForgotPasswordIn, request: Request, db: Session = Depends(get_db)):
+@limiter.limit(PASSWORD_RESET_REQUEST_RATE_LIMIT)
+def forgot_password(
+    payload: ForgotPasswordIn,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
     """
     Sempre retorna ok=True para evitar enumeraÃ§Ã£o de emails.
     Se o email existir, cria token e envia o token/cÃ³digo por email.
@@ -73,7 +84,13 @@ def forgot_password(payload: ForgotPasswordIn, request: Request, db: Session = D
     response_model=ResetPasswordOut,
     status_code=status.HTTP_200_OK,
 )
-def reset_password(payload: ResetPasswordIn, request: Request, db: Session = Depends(get_db)):
+@limiter.limit(PASSWORD_RESET_CONFIRM_RATE_LIMIT)
+def reset_password(
+    payload: ResetPasswordIn,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
     """
     Recebe email + token + nova senha e efetiva a troca.
     """
