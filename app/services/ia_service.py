@@ -1,165 +1,323 @@
 import json
-import re
-import uuid
 import random
+import re
 import unicodedata
-from typing import Any, Dict, Optional
+import uuid
+from typing import Any, Optional
 
 from openai import OpenAI
+
 from app.config import OPENAI_API_KEY, OPENAI_MODEL
 from app.core.logger import get_logger
 
 logger = get_logger("ia_service")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-DEFAULT_REFLECTION_THEMES = ["cansaço", "autocobrança", "sono"]
+DEFAULT_REFLECTION_THEMES = ["cansaco", "autocobranca", "sono"]
 
 _THEME_KEYWORDS = {
     "ansiedade": [
-        "ansiedade", "ansioso", "ansiosa", "ansioso", "ansiosa",
-        "preocup", "apreens", "nervos", "taquic", "angust",
+        "ansiedade",
+        "ansioso",
+        "ansiosa",
+        "preocup",
+        "apreens",
+        "nervos",
+        "taquic",
+        "angust",
     ],
     "sono": [
-        "sono", "dormi", "dormir", "insonia", "insônia",
-        "acordei", "acordar", "cama", "descanso", "descansar",
+        "sono",
+        "dormi",
+        "dormir",
+        "insonia",
+        "acordei",
+        "acordar",
+        "cama",
+        "descanso",
+        "descansar",
     ],
-    "cansaço": [
-        "cansaco", "cansaço", "exaust", "esgot", "fadig",
-        "sem energia", "sem disposição", "sobrecarreg",
+    "cansaco": [
+        "cansaco",
+        "exaust",
+        "esgot",
+        "fadig",
+        "sem energia",
+        "sem disposicao",
+        "sobrecarreg",
     ],
     "trabalho": [
-        "trabalho", "empresa", "chefe", "reuniao", "reunião",
-        "prazo", "meta", "colega", "escritorio", "escritório", "profissional",
+        "trabalho",
+        "empresa",
+        "chefe",
+        "reuniao",
+        "prazo",
+        "meta",
+        "colega",
+        "escritorio",
+        "profissional",
     ],
-    "autocobrança": [
-        "autocobr", "me cobro", "me cobrar", "perfeccion", "culpa",
-        "fracasso", "falhei", "falhar", "erro", "errar", "insuficient",
+    "autocobranca": [
+        "autocobr",
+        "me cobro",
+        "me cobrar",
+        "perfeccion",
+        "culpa",
+        "fracasso",
+        "falhei",
+        "falhar",
+        "erro",
+        "errar",
+        "insuficient",
     ],
     "tristeza": [
-        "triste", "tristeza", "desanim", "vazio", "abat",
-        "chor", "desmotivad", "para baixo",
+        "triste",
+        "tristeza",
+        "desanim",
+        "vazio",
+        "abat",
+        "chor",
+        "desmotivad",
+        "para baixo",
     ],
     "raiva": [
-        "raiva", "irrit", "odio", "ódio", "bravo", "brava",
-        "furios", "furiosa", "explodi", "explodir",
+        "raiva",
+        "irrit",
+        "odio",
+        "bravo",
+        "brava",
+        "furios",
+        "furiosa",
+        "explodi",
+        "explodir",
     ],
     "relacionamento": [
-        "relacionamento", "parceir", "namor", "casamento", "famil",
-        "família", "amigo", "amizade", "mãe", "pai", "irmã", "irma", "irmão", "irmao",
+        "relacionamento",
+        "parceir",
+        "namor",
+        "casamento",
+        "famil",
+        "amigo",
+        "amizade",
+        "mae",
+        "pai",
+        "irma",
+        "irmao",
     ],
 }
 
 _NEURO_TIP_CATALOG = {
     "ansiedade": [
-        "Fazer refeições em horários mais previsíveis e manter água por perto pode ajudar a reduzir picos de fome e desconforto intestinal ao longo do dia.",
-        "Incluir aveia, frutas e legumes no dia a dia favorece fibras para a microbiota, o que apoia a comunicação entre intestino e cérebro.",
-        "Diminuir o excesso de cafeína no fim do dia e reforçar a hidratação pode deixar o corpo menos sobrecarregado."
+        "Manter agua por perto e evitar longos periodos em jejum pode reduzir desconfortos corporais ao longo do dia.",
+        "Incluir aveia, frutas e legumes com regularidade favorece fibras para a microbiota e apoia o eixo intestino-cerebro.",
+        "Observar o excesso de cafeina e reforcar a hidratacao pode deixar a rotina alimentar mais estavel.",
+        "Refeicoes em horarios previsiveis ajudam o intestino a funcionar com mais constancia em dias tensos.",
     ],
     "sono": [
-        "Evitar refeições muito pesadas perto de dormir e manter boa hidratação ao longo do dia pode favorecer um descanso mais confortável.",
-        "Uma refeição noturna mais leve, com alimentos de preparo simples, costuma ser mais gentil para o intestino antes de deitar.",
-        "Manter horários regulares para jantar e incluir fibras no dia a dia ajuda o intestino a funcionar com mais previsibilidade."
+        "Uma refeicao noturna mais leve e em horario regular costuma ser mais gentil para o intestino antes de deitar.",
+        "Evitar refeicoes muito pesadas perto de dormir e manter boa hidratacao ao longo do dia pode favorecer mais conforto corporal.",
+        "Incluir fibras de frutas, legumes e aveia no dia a dia ajuda a manter o intestino mais previsivel.",
+        "Diminuir cafeina no fim do dia e jantar com simplicidade pode ajudar a rotina do corpo a ficar menos sobrecarregada.",
     ],
-    "cansaço": [
-        "Ficar muitas horas sem comer pode aumentar a sensação de desgaste, então vale distribuir melhor água e refeições ao longo do dia.",
-        "Combinar carboidratos simples do dia a dia com fontes de fibras, como frutas e aveia, pode ajudar a evitar oscilações bruscas de energia.",
-        "Adicionar legumes, frutas e feijões à rotina alimentar apoia a microbiota e pode contribuir para uma sensação corporal mais estável."
+    "cansaco": [
+        "Distribuir agua e refeicoes ao longo do dia pode ajudar a evitar oscilacoes grandes de energia.",
+        "Combinar alimentos do cotidiano com frutas, aveia ou feijoes pode trazer mais fibras e ritmo para o intestino.",
+        "Adicionar legumes e frutas na rotina apoia a microbiota e ajuda a manter o corpo mais estavel.",
+        "Evitar passar muitas horas sem comer pode ser um cuidado simples para dias de desgaste.",
     ],
     "trabalho": [
-        "Deixar uma garrafa de água visível durante o trabalho ajuda a lembrar da hidratação mesmo em dias mais corridos.",
-        "Ter um lanche simples com fruta, iogurte natural ou aveia pode evitar longos períodos em jejum em dias de agenda apertada.",
-        "Quando a rotina fica puxada, refeições mais previsíveis e com menos ultraprocessados costumam ser mais gentis com o intestino."
+        "Deixar uma garrafa de agua visivel durante o trabalho ajuda a lembrar da hidratacao em dias corridos.",
+        "Ter um lanche simples com fruta, iogurte natural ou aveia pode evitar longos periodos em jejum na agenda apertada.",
+        "Refeicoes mais previsiveis e com menos ultraprocessados costumam ser mais gentis com o intestino em rotinas exigentes.",
+        "Separar pausas curtas para agua e comida simples ajuda a nao jogar a alimentacao para depois.",
     ],
-    "autocobrança": [
-        "Montar refeições simples e possíveis de manter no cotidiano costuma funcionar melhor do que tentar padrões alimentares difíceis de sustentar.",
-        "Beber água ao longo do dia e incluir alimentos in natura já é um cuidado consistente com o eixo intestino-cérebro.",
-        "Pequenos ajustes repetidos, como colocar fruta ou legumes em uma refeição por vez, já oferecem fibras úteis para a microbiota."
+    "autocobranca": [
+        "Montar refeicoes simples e possiveis de manter costuma funcionar melhor do que tentar regras alimentares muito rigidas.",
+        "Beber agua ao longo do dia e incluir alimentos in natura ja e um cuidado consistente com o eixo intestino-cerebro.",
+        "Pequenos ajustes repetidos, como colocar fruta ou legumes em uma refeicao por vez, ja oferecem fibras uteis para a microbiota.",
+        "Uma rotina alimentar sustentavel costuma ser mais util do que buscar perfeicao nas escolhas.",
     ],
     "tristeza": [
-        "Manter alguma regularidade nas refeições e na hidratação pode ajudar o corpo a não entrar em ciclos longos de jejum.",
-        "Alimentos ricos em fibras, como frutas, legumes e aveia, ajudam a microbiota intestinal e sustentam hábitos mais estáveis.",
-        "Uma rotina alimentar simples, com menos ultraprocessados e mais água ao longo do dia, pode ser um cuidado gentil com o corpo."
+        "Manter alguma regularidade nas refeicoes e na hidratacao pode ajudar o corpo a nao entrar em ciclos longos de jejum.",
+        "Frutas, legumes e aveia ajudam a microbiota intestinal e sustentam habitos alimentares mais estaveis.",
+        "Uma rotina alimentar simples, com menos ultraprocessados e mais agua ao longo do dia, pode ser um cuidado pratico com o corpo.",
+        "Mesmo em dias arrastados, um lanche simples e agua por perto ajudam a manter o corpo assistido.",
     ],
     "raiva": [
-        "Em dias intensos, vale observar se café em excesso e longos períodos sem comer estão aumentando o desconforto físico e ajustar isso com mais água e pausas para se alimentar.",
-        "Refeições previsíveis, com alimentos simples e fontes de fibras, ajudam o intestino a manter um ritmo mais estável.",
-        "Levar água e um lanche simples para momentos corridos pode reduzir períodos longos de jejum e desconforto corporal."
+        "Observar excesso de cafe, longos periodos sem comer e pouca agua pode ajudar a reduzir desconforto fisico em dias intensos.",
+        "Refeicoes previsiveis, com alimentos simples e fontes de fibras, ajudam o intestino a manter um ritmo mais estavel.",
+        "Levar agua e um lanche simples para momentos corridos pode reduzir jejum prolongado e mal-estar corporal.",
+        "Frutas, legumes e aveia sao opcoes simples para dar mais constancia a rotina alimentar.",
     ],
     "relacionamento": [
-        "Quando a rotina emocional fica bagunçada, manter horários mínimos para comer e beber água já ajuda o corpo a não ficar em segundo plano.",
-        "Incluir frutas, legumes e aveia no cotidiano favorece a microbiota intestinal e sustenta hábitos alimentares mais consistentes.",
-        "Organizar refeições simples em casa, com menos ultraprocessados, pode deixar a alimentação mais previsível ao longo da semana."
+        "Manter horarios minimos para comer e beber agua ajuda o corpo a nao ficar em segundo plano quando a rotina emocional aperta.",
+        "Incluir frutas, legumes e aveia no cotidiano favorece a microbiota intestinal e sustenta habitos mais consistentes.",
+        "Organizar refeicoes simples em casa, com menos ultraprocessados, pode deixar a alimentacao mais previsivel ao longo da semana.",
+        "Uma garrafa de agua por perto e um lanche simples pronto podem facilitar o cuidado com o corpo em dias confusos.",
     ],
 }
 
 _ACTIVITY_CATALOG = {
     "ansiedade": [
-        "Faça uma caminhada leve de 10 minutos em ritmo confortável, só para tirar o corpo da imobilidade.",
-        "Levante-se por 5 minutos, alongue ombros e pescoço devagar e beba um copo de água.",
-        "Saia um pouco da tela, caminhe dentro de casa ou do quarteirão e tome água antes de voltar à rotina."
+        "Faca uma caminhada leve de 10 minutos em ritmo confortavel para tirar o corpo da imobilidade.",
+        "Levante por 5 minutos, alongue ombros e pescoco devagar e tome um copo de agua.",
+        "Saia um pouco da tela, caminhe pela casa ou pelo quarteirao e beba agua antes de voltar a rotina.",
+        "Escolha um trajeto curto para andar devagar e dar ao corpo uma pausa fisica simples.",
     ],
     "sono": [
-        "Tente um alongamento leve no fim do dia, com movimentos simples de pescoço, ombros e pernas, sem forçar.",
-        "Faça uma caminhada curta no começo da noite ou no fim da tarde para ajudar o corpo a desacelerar com movimento leve.",
-        "Pegue alguns minutos de luz natural pela manhã e caminhe um pouco, mesmo que seja dentro de um ritmo bem leve."
+        "Tente um alongamento leve no fim do dia, com movimentos simples de pescoco, ombros e pernas, sem forcar.",
+        "Faca uma caminhada curta no fim da tarde ou no comeco da noite para movimentar o corpo de forma leve.",
+        "Pegue alguns minutos de luz natural pela manha e caminhe um pouco em ritmo tranquilo.",
+        "Um banho morno seguido de alongamento leve pode ajudar a criar uma transicao corporal para a noite.",
     ],
-    "cansaço": [
-        "Faça uma pausa curta para caminhar de 5 a 10 minutos e beber água antes de retomar o que estava fazendo.",
-        "Alongue costas, pernas e ombros por alguns minutos, com movimentos lentos e confortáveis.",
-        "Se o corpo estiver muito parado, levante, caminhe um pouco pela casa ou trabalho e depois tome água."
+    "cansaco": [
+        "Faca uma pausa curta para caminhar de 5 a 10 minutos e beber agua antes de retomar o que estava fazendo.",
+        "Alongue costas, pernas e ombros por alguns minutos, com movimentos lentos e confortaveis.",
+        "Se o corpo estiver muito parado, levante, caminhe um pouco pelo ambiente e depois tome agua.",
+        "Escolha um movimento leve e simples, como andar alguns minutos ou se espreguicar com calma.",
     ],
     "trabalho": [
-        "Programe uma pausa de tela para levantar, andar um pouco e alongar pescoço e ombros por 5 minutos.",
-        "Entre uma tarefa e outra, caminhe alguns minutos e beba água para quebrar o tempo sentado.",
-        "Se puder, tome um pouco de sol leve e faça uma volta curta antes de retomar o ritmo de trabalho."
+        "Programe uma pausa de tela para levantar, andar um pouco e alongar pescoco e ombros por 5 minutos.",
+        "Entre uma tarefa e outra, caminhe alguns minutos e beba agua para quebrar o tempo sentado.",
+        "Se puder, tome um pouco de sol leve e faca uma volta curta antes de retomar o ritmo de trabalho.",
+        "Levantar da cadeira, mudar de ambiente por alguns minutos e tomar agua ja pode ser uma pausa corporal util.",
     ],
-    "autocobrança": [
-        "Escolha uma ação pequena e concreta, como caminhar 10 minutos em ritmo leve, sem transformar isso em meta rígida.",
-        "Faça um alongamento curto e confortável, focando só em movimentar o corpo por alguns minutos.",
-        "Levante-se, tome água e caminhe um pouco antes de voltar para as próximas demandas."
+    "autocobranca": [
+        "Escolha uma acao pequena e concreta, como caminhar 10 minutos em ritmo leve, sem transformar isso em meta rigida.",
+        "Faca um alongamento curto e confortavel, focando apenas em movimentar o corpo por alguns minutos.",
+        "Levante, tome agua e caminhe um pouco antes de voltar para as proximas demandas.",
+        "Experimente um movimento leve e viavel agora, como andar ate a janela, tomar agua e alongar os ombros.",
     ],
     "tristeza": [
-        "Tente sair um pouco da cama ou do sofá para caminhar em ritmo leve por alguns minutos e abrir espaço para movimento no corpo.",
-        "Tome um banho morno ou fresco e depois faça alguns alongamentos simples de ombros e pernas.",
-        "Se for possível, pegue alguns minutos de luz natural e caminhe devagar, sem se cobrar desempenho."
+        "Tente sair um pouco da cama ou do sofa para caminhar em ritmo leve por alguns minutos.",
+        "Tome um banho e depois faca alguns alongamentos simples de ombros e pernas.",
+        "Se for possivel, pegue alguns minutos de luz natural e caminhe devagar, sem se cobrar desempenho.",
+        "Levantar, abrir a janela e dar alguns passos pela casa ja pode criar um pouco de movimento corporal.",
     ],
     "raiva": [
-        "Dê uma volta curta a pé, em ritmo constante, só para ajudar o corpo a descarregar um pouco da tensão física.",
-        "Faça movimentos simples de ombros, braços e pernas por alguns minutos, sem pressa e sem forçar.",
-        "Saia da tela, beba água e caminhe um pouco antes de continuar a conversa ou tarefa."
+        "De uma volta curta a pe, em ritmo constante, para ajudar o corpo a descarregar um pouco da tensao fisica.",
+        "Faca movimentos simples de ombros, bracos e pernas por alguns minutos, sem pressa e sem forcar.",
+        "Saia da tela, beba agua e caminhe um pouco antes de continuar a tarefa ou conversa.",
+        "Escolha um deslocamento curto, mesmo dentro de casa, para tirar o corpo do ponto de tensao.",
     ],
     "relacionamento": [
-        "Faça uma caminhada leve de 10 minutos para sair do ambiente da conversa e movimentar o corpo.",
+        "Faca uma caminhada leve de 10 minutos para sair do ambiente da conversa e movimentar o corpo.",
         "Tome um banho e depois alongue ombros, costas e pernas por alguns minutos, com calma.",
-        "Se puder, pegue um pouco de sol leve e caminhe devagar para mudar o ritmo corporal."
+        "Se puder, pegue um pouco de sol leve e caminhe devagar para mudar o ritmo corporal.",
+        "Levante do lugar, mude de ambiente por alguns minutos e tome agua antes de retomar a conversa.",
     ],
 }
 
-# Indícios de que a frase é realmente sobre alimentação / intestino-cérebro
 _NEURO_KEYWORDS = [
-    "água", "hidrat", "fibr", "prote", "fruta", "veget", "legume", "salada",
-    "ômega", "omega", "probió", "probiot", "prebió", "prebiot", "ferment",
-    "iogurte", "kefir", "intestin", "microbi", "cérebro", "nutri",
-    "açúcar", "cafe", "cafeína", "refei", "aliment", "comida", "ultraprocess",
-    "processad", "sement", "castanh", "aveia"
+    "agua",
+    "hidrat",
+    "fibr",
+    "fruta",
+    "veget",
+    "legume",
+    "salada",
+    "omega",
+    "probiot",
+    "prebiot",
+    "ferment",
+    "iogurte",
+    "kefir",
+    "intestin",
+    "microbi",
+    "cerebro",
+    "nutri",
+    "acucar",
+    "cafe",
+    "cafeina",
+    "refei",
+    "aliment",
+    "comida",
+    "ultraprocess",
+    "processad",
+    "sement",
+    "castanh",
+    "aveia",
+    "lanche",
+    "jejum",
 ]
 
-# Termos que indicam que a IA “escapou” pra psicologia no campo de nutrição
 _FORBIDDEN_NEURO_HINTS = [
-    "autocompaix", "respir", "medit", "mindful", "terapia",
-    "emoc", "sentiment", "ansiedad", "depress", "relax", "psicol",
-    "journaling", "diário", "diario", "autoestima"
+    "autocompaix",
+    "respir",
+    "medit",
+    "mindful",
+    "terapia",
+    "emoc",
+    "sentiment",
+    "ansiedad",
+    "depress",
+    "relax",
+    "psicol",
+    "journaling",
+    "diario",
+    "autoestima",
+    "suplement",
+    "medic",
+    "remedio",
+    "capsula",
 ]
 
-# ✅ Validação para ACTIVITY (pra não vir "diário", "meditação", etc.)
 _ACTIVITY_KEYWORDS = [
-    "caminh", "along", "moviment", "paus", "postur", "sol",
-    "hidrata", "água", "descans", "sono", "banho", "corrid", "exerc"
+    "caminh",
+    "along",
+    "moviment",
+    "pausa",
+    "paus",
+    "postur",
+    "sol",
+    "hidrata",
+    "agua",
+    "banho",
+    "andar",
+    "levante",
+    "levantar",
 ]
 
 _FORBIDDEN_ACTIVITY_HINTS = [
-    "journaling", "diário", "diario", "escrev", "anot",
-    "medit", "mindful", "respir", "terapia", "autocompaix", "relax"
+    "journaling",
+    "diario",
+    "escrev",
+    "anot",
+    "medit",
+    "mindful",
+    "respir",
+    "terapia",
+    "autocompaix",
+    "relax",
+]
+
+_URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+_EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
+_CPF_RE = re.compile(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b")
+_CEP_RE = re.compile(r"\b\d{5}-?\d{3}\b")
+_PHONE_RE = re.compile(
+    r"(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?(?:9?\d{4})[-\s]\d{4}\b"
+)
+_LONG_IDENTIFIER_RE = re.compile(r"\b\d[\d.\-/ ]{7,}\d\b")
+_ADDRESS_RE = re.compile(
+    r"\b(?:rua|avenida|av\.?|travessa|alameda|rodovia|estrada|praca|praça|bairro|"
+    r"condominio|condomínio|residencial)\s+[A-Za-z0-9À-ÿ][^,\n;.]{2,}",
+    re.IGNORECASE,
+)
+_FAMILY_NAME_RE = re.compile(
+    r"\b(mae|mãe|pai|irma|irmã|irmao|irmão|filho|filha|esposa|marido)\s+"
+    r"(?:do|da|de|meu|minha)?\s*[A-ZÁÀÂÃÉÈÊÍÌÎÓÒÔÕÚÙÛÇ][a-záàâãéèêíìîóòôõúùûç]+",
+)
+_DIRECT_NAME_PATTERNS = [
+    re.compile(
+        r"\b(meu nome e|meu nome é|sou eu|eu sou|me chamo|chamo-me)\s+"
+        r"([A-ZÁÀÂÃÉÈÊÍÌÎÓÒÔÕÚÙÛÇ][a-záàâãéèêíìîóòôõúùûç]+(?:\s+[A-ZÁÀÂÃÉÈÊÍÌÎÓÒÔÕÚÙÛÇ][a-záàâãéèêíìîóòôõúùûç]+){0,2})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(paciente|cliente)\s+([A-ZÁÀÂÃÉÈÊÍÌÎÓÒÔÕÚÙÛÇ][a-záàâãéèêíìîóòôõúùûç]+(?:\s+[A-ZÁÀÂÃÉÈÊÍÌÎÓÒÔÕÚÙÛÇ][a-záàâãéèêíìîóòôõúùûç]+){0,2})",
+        re.IGNORECASE,
+    ),
 ]
 
 
@@ -176,6 +334,30 @@ def _pick_unique_candidates(candidates: list[str], *, count: int = 3) -> list[st
     if len(unique_candidates) <= count:
         return unique_candidates[:count]
     return random.sample(unique_candidates, count)
+
+
+def sanitize_for_ai(text: str) -> str:
+    sanitized = (text or "").strip()
+    if not sanitized:
+        return ""
+
+    sanitized = _URL_RE.sub("[URL_REMOVIDA]", sanitized)
+    sanitized = _EMAIL_RE.sub("[EMAIL_REMOVIDO]", sanitized)
+    sanitized = _CPF_RE.sub("[CPF_REMOVIDO]", sanitized)
+    sanitized = _CEP_RE.sub("[ENDERECO_REMOVIDO]", sanitized)
+    sanitized = _PHONE_RE.sub("[TELEFONE_REMOVIDO]", sanitized)
+    sanitized = _ADDRESS_RE.sub("[ENDERECO_REMOVIDO]", sanitized)
+    sanitized = _FAMILY_NAME_RE.sub(
+        lambda m: f"{m.group(1)} [FAMILIAR_REMOVIDO]",
+        sanitized,
+    )
+
+    for pattern in _DIRECT_NAME_PATTERNS:
+        sanitized = pattern.sub(lambda m: f"{m.group(1)} [NOME_REMOVIDO]", sanitized)
+
+    sanitized = _LONG_IDENTIFIER_RE.sub("[IDENTIFICADOR_REMOVIDO]", sanitized)
+    sanitized = re.sub(r"\s+", " ", sanitized).strip()
+    return sanitized
 
 
 def detect_reflection_themes(text: str) -> list[str]:
@@ -214,77 +396,73 @@ def get_activity_candidates(themes: list[str]) -> list[str]:
 
 
 def _strip_code_fences(text: str) -> str:
-    """Remove ```json ... ``` ou ``` ... ``` caso venha cercado."""
     if not text:
         return text
-    t = text.strip()
-    if t.startswith("```"):
-        t = re.sub(r"^```[a-zA-Z0-9]*\s*", "", t)
-        t = re.sub(r"\s*```$", "", t)
-    return t.strip()
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```[a-zA-Z0-9]*\s*", "", stripped)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    return stripped.strip()
 
 
-def _safe_json_loads(text: str) -> Optional[Dict[str, Any]]:
-    """Tenta converter a resposta em JSON de forma resiliente."""
+def _safe_json_loads(text: str) -> Optional[dict[str, Any]]:
     if not text:
         return None
 
     cleaned = _strip_code_fences(text)
 
-    # tentativa direta
     try:
-        obj = json.loads(cleaned)
-        return obj if isinstance(obj, dict) else None
+        payload = json.loads(cleaned)
+        return payload if isinstance(payload, dict) else None
     except Exception:
         pass
 
-    # tentativa: extrair o primeiro bloco {...}
     match = re.search(r"\{[\s\S]*\}", cleaned)
-    if match:
-        try:
-            obj = json.loads(match.group(0))
-            return obj if isinstance(obj, dict) else None
-        except Exception:
-            return None
+    if not match:
+        return None
 
-    return None
+    try:
+        payload = json.loads(match.group(0))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _normalize_one_line(text: Optional[str], *, max_chars: int) -> Optional[str]:
     if not text:
         return None
-    t = " ".join(str(text).split())
-    if len(t) > max_chars:
-        t = t[: max_chars - 1].rstrip() + "…"
-    return t
+    normalized = " ".join(str(text).split())
+    if len(normalized) > max_chars:
+        normalized = normalized[: max_chars - 3].rstrip() + "..."
+    return normalized
 
 
 def _is_valid_neuro_tip(text: Optional[str]) -> bool:
-    """Valida se a dica parece ser de neuro nutrição e não de psicologia."""
     if not text:
         return False
-    t = _normalize_for_match(text.strip())
-    if not t:
+
+    normalized = _normalize_for_match(text.strip())
+    if not normalized:
         return False
 
-    if any(bad in t for bad in _FORBIDDEN_NEURO_HINTS):
+    if any(bad in normalized for bad in _FORBIDDEN_NEURO_HINTS):
         return False
 
-    return any(k in t for k in _NEURO_KEYWORDS)
+    return any(keyword in normalized for keyword in _NEURO_KEYWORDS)
 
 
 def _is_valid_activity(text: Optional[str]) -> bool:
-    """Valida se a activity é prática e não escapa para journaling/meditação/respiração."""
     if not text:
         return False
-    t = _normalize_for_match(text.strip())
-    if not t:
+
+    normalized = _normalize_for_match(text.strip())
+    if not normalized:
         return False
 
-    if any(bad in t for bad in _FORBIDDEN_ACTIVITY_HINTS):
+    if any(bad in normalized for bad in _FORBIDDEN_ACTIVITY_HINTS):
         return False
 
-    return any(k in t for k in _ACTIVITY_KEYWORDS)
+    return any(keyword in normalized for keyword in _ACTIVITY_KEYWORDS)
 
 
 def _fallback_neuro_tip() -> str:
@@ -298,45 +476,35 @@ def _fallback_activity() -> str:
 
 
 def _pick_style() -> str:
-    """Escolhe um estilo para quebrar respostas repetidas (sem mudar schema)."""
-    return random.choice([
-        "estilo direto e objetivo (sem floreios)",
-        "estilo acolhedor e conciso (sem clichês)",
-        "estilo educativo com exemplo prático simples (1 exemplo)",
-    ])
-
-
-def generate_feedback_structured(*, reflection_text: str, anamnesis_summary: Optional[str] = None) -> dict:
-    """
-    Gera feedback terapêutico com saída estruturada (JSON).
-    - Não faz diagnóstico
-    - Não prescreve medicamentos
-    - Não dá instruções de urgência
-    - Não substitui acompanhamento profissional
-    - Inclui dica específica de neuro nutrição (alimentação/cérebro-intestino)
-    Retorna dict com chaves: feedback, neuro_tip, activity
-
-    ✅ Usa "anamnesis_summary" como contexto (quando existir),
-    sem reproduzir literalmente e sem expor dados sensíveis.
-    """
-    request_id = uuid.uuid4().hex[:8]
-
-    reflection_text = (reflection_text or "").strip()
-    anamnesis_summary = (anamnesis_summary or "").strip()
-
-    # proteção simples pra não explodir tokens com anamneses enormes
-    if len(anamnesis_summary) > 4000:
-        anamnesis_summary = anamnesis_summary[:4000].rstrip() + "…"
-
-    logger.info(
-        f"[{request_id}] START model={OPENAI_MODEL} "
-        f"input_chars={len(reflection_text)} anamnesis_chars={len(anamnesis_summary)}"
+    return random.choice(
+        [
+            "estilo direto e objetivo, sem floreios",
+            "estilo acolhedor e conciso, sem clichEs",
+            "estilo educativo com um exemplo pratico simples",
+        ]
     )
 
+
+def generate_feedback_structured(
+    *,
+    reflection_text: str,
+    anamnesis_summary: Optional[str] = None,
+) -> dict:
+    request_id = uuid.uuid4().hex[:8]
+
+    original_reflection = (reflection_text or "").strip()
+    original_anamnesis = (anamnesis_summary or "").strip()
+
+    reflection_text = sanitize_for_ai(original_reflection)
+    anamnesis_summary = sanitize_for_ai(original_anamnesis)
+
+    if len(anamnesis_summary) > 4000:
+        anamnesis_summary = anamnesis_summary[:4000].rstrip() + "..."
+
     if not reflection_text:
-        logger.info(f"[{request_id}] EMPTY_INPUT -> fallback")
+        logger.info(f"[{request_id}] EMPTY_INPUT")
         return {
-            "feedback": "Não recebi o texto da reflexão. Você pode enviar novamente para que eu possa responder com cuidado?",
+            "feedback": "Nao recebi o texto da reflexao. Voce pode enviar novamente para que eu possa responder com cuidado?",
             "neuro_tip": _fallback_neuro_tip(),
             "activity": _fallback_activity(),
         }
@@ -345,65 +513,54 @@ def generate_feedback_structured(*, reflection_text: str, anamnesis_summary: Opt
     themes = detect_reflection_themes(reflection_text)
     neuro_tip_candidates = get_neuro_tip_candidates(themes)
     activity_candidates = get_activity_candidates(themes)
-    logger.info(f"[{request_id}] STYLE={style}")
-    logger.info(
-        f"[{request_id}] CONTEXT themes={themes} "
-        f"neuro_candidates={len(neuro_tip_candidates)} activity_candidates={len(activity_candidates)}"
-    )
 
     system_prompt = (
-        "Você é um assistente de apoio terapêutico.\n"
-        "Sua função é gerar devolutivas acolhedoras e educativas baseadas no texto do cliente.\n"
+        "Voce e um assistente de apoio terapeutico.\n"
+        "Sua funcao e gerar devolutivas acolhedoras e educativas baseadas no texto do cliente.\n"
         "Regras:\n"
-        "- Não faça diagnóstico.\n"
-        "- Não prescreva medicamentos.\n"
-        "- Não dê instruções de urgência.\n"
-        "- Não substitua acompanhamento profissional.\n"
-        "- Seja gentil, claro e objetivo.\n"
-        "- Responda SEMPRE em JSON puro (sem markdown, sem texto fora do JSON).\n"
-        "- Se houver ANAMNESE, use apenas como CONTEXTO; NÃO copie literalmente e NÃO exponha dados sensíveis.\n"
+        "- Nao faca diagnostico.\n"
+        "- Nao prescreva medicamentos, suplementos ou dietas.\n"
+        "- Nao de instrucoes de urgencia.\n"
+        "- Nao substitua acompanhamento profissional.\n"
+        "- Responda sempre em JSON puro, sem markdown e sem texto fora do JSON.\n"
+        "- Se houver anamnese, use apenas como contexto, sem repetir literalmente.\n"
+        "- Nunca invente nem tente reconstruir dados pessoais removidos.\n"
     )
 
     user_prompt = f"""
-Gere uma devolutiva baseada na reflexão abaixo.
+Gere uma devolutiva baseada na reflexao sanitizada abaixo.
 Use {style}.
 
-Retorne exatamente este JSON (apenas JSON):
+Retorne exatamente este JSON:
 {{
-  "feedback": "texto acolhedor e educativo (até 1200 caracteres)",
-  "neuro_tip": "dica curta de NEURO NUTRIÇÃO em 1 frase (alimentação/hidratação/hábitos alimentares ligados a cérebro e intestino). Proibido: respiração, autocompaixão, meditação, terapia, emoções.",
-  "activity": "sugestão leve e PRÁTICA em 1 frase (preferência: caminhada, alongamento, pausa de tela, tomar água, pegar sol). Proibido: diário/journaling, meditação, mindfulness, respiração guiada, terapia."
+  "feedback": "texto acolhedor e educativo, com ate 1200 caracteres",
+  "neuro_tip": "1 frase curta apenas sobre alimentacao, hidratacao, microbiota, intestino-cerebro ou habitos alimentares. Nao falar de meditacao, respiracao, terapia, autocompaixao, emocoes, suplementos ou medicamentos.",
+  "activity": "1 frase curta com pratica corporal leve e segura. Pode sugerir caminhada, alongamento, pausa de tela, banho, exposicao leve ao sol, movimento leve ou hidratacao. Nao sugerir diario, journaling, meditacao, mindfulness, respiracao guiada ou terapia."
 }}
 
-Regras de qualidade do campo "feedback":
-- Cite explicitamente 2 detalhes do texto do cliente (ex: trabalho, autocobrança, ansiedade, etc.).
-- Evite clichês/começos genéricos (ex: "É compreensível...", "Seja gentil consigo mesmo...", "Cada passo é uma conquista...").
-- Traga 1 pergunta reflexiva curta no final (1 frase).
-- Sem diagnóstico; sem prometer cura; sem instruções de urgência.
-- Se usar ANAMNESE: apenas como contexto. Não copiar literal; não revelar detalhes sensíveis.
+Regras do campo feedback:
+- Cite explicitamente 2 detalhes presentes no texto sanitizado.
+- Evite cliches e aberturas genericas.
+- Termine com 1 pergunta reflexiva curta.
+- Nao faca diagnostico, nao prometa cura e nao de instrucoes de urgencia.
 
-Regras obrigatórias do campo neuro_tip:
-- Fale apenas de alimentação, hidratação ou hábitos alimentares (microbiota/intestino-cérebro).
-- Não prescreva dieta, não prometa cura, não indique suplemento/medicamento.
-- Seja simples e aplicável no dia a dia.
-
-TEMAS DETECTADOS DA REFLEXÃO:
+Temas detectados:
 {", ".join(themes)}
 
-OPÇÕES INTERNAS PARA BASEAR O CAMPO "neuro_tip" (adapte sem copiar de forma mecânica):
+Opcoes internas para orientar neuro_tip:
 - {neuro_tip_candidates[0]}
 - {neuro_tip_candidates[1]}
 - {neuro_tip_candidates[2]}
 
-OPÇÕES INTERNAS PARA BASEAR O CAMPO "activity" (adapte sem copiar de forma mecânica):
+Opcoes internas para orientar activity:
 - {activity_candidates[0]}
 - {activity_candidates[1]}
 - {activity_candidates[2]}
 
-ANAMNESE DO CLIENTE (contexto; não repetir literalmente):
+Anamnese sanitizada:
 {anamnesis_summary if anamnesis_summary else "(sem anamnese cadastrada)"}
 
-Reflexão do cliente:
+Reflexao sanitizada:
 {reflection_text}
 """.strip()
 
@@ -418,50 +575,47 @@ Reflexão do cliente:
             presence_penalty=0.4,
             frequency_penalty=0.3,
         )
-    except Exception as e:
-        logger.exception(f"[{request_id}] OPENAI_CALL_FAILED error={str(e)}")
+    except Exception as exc:
+        logger.exception(f"[{request_id}] OPENAI_CALL_FAILED error_type={type(exc).__name__}")
         return {
-            "feedback": "Não consegui gerar a devolutiva agora. Tente novamente em alguns instantes.",
+            "feedback": "Nao consegui gerar a devolutiva agora. Tente novamente em alguns instantes.",
             "neuro_tip": _fallback_neuro_tip(),
             "activity": _fallback_activity(),
         }
 
     content = (response.choices[0].message.content or "").strip()
+    payload = _safe_json_loads(content)
 
-    data = _safe_json_loads(content)
-    if not isinstance(data, dict):
-        logger.info(
-            f"[{request_id}] JSON_PARSE_FAILED response_chars={len(content)} -> fallback_structured"
-        )
+    if not isinstance(payload, dict):
+        logger.info(f"[{request_id}] RESPONSE_METADATA response_chars={len(content)} json_keys=[]")
         return {
             "feedback": _normalize_one_line(content, max_chars=1200)
-            or "Não foi possível gerar a devolutiva no formato esperado.",
+            or "Nao foi possivel gerar a devolutiva no formato esperado.",
             "neuro_tip": random.choice(neuro_tip_candidates),
             "activity": random.choice(activity_candidates),
         }
 
     logger.info(
         f"[{request_id}] RESPONSE_METADATA response_chars={len(content)} "
-        f"json_keys={list(data.keys())}"
+        f"json_keys={sorted(payload.keys())}"
     )
 
-    feedback = _normalize_one_line(data.get("feedback"), max_chars=1200)
-    neuro_tip = _normalize_one_line(data.get("neuro_tip"), max_chars=240)
-    activity = _normalize_one_line(data.get("activity"), max_chars=240)
+    feedback = _normalize_one_line(payload.get("feedback"), max_chars=1200)
+    neuro_tip = _normalize_one_line(payload.get("neuro_tip"), max_chars=240)
+    activity = _normalize_one_line(payload.get("activity"), max_chars=240)
 
     if not feedback:
-        logger.info(f"[{request_id}] feedback missing -> fallback_text")
-        feedback = _normalize_one_line(content, max_chars=1200) or "Não foi possível gerar a devolutiva automaticamente."
+        feedback = (
+            _normalize_one_line(content, max_chars=1200)
+            or "Nao foi possivel gerar a devolutiva automaticamente."
+        )
 
     if not _is_valid_neuro_tip(neuro_tip):
-        logger.info(f"[{request_id}] neuro_tip invalid -> fallback")
         neuro_tip = random.choice(neuro_tip_candidates)
 
     if not _is_valid_activity(activity):
-        logger.info(f"[{request_id}] activity invalid -> fallback")
         activity = random.choice(activity_candidates)
 
-    logger.info(f"[{request_id}] DONE ok")
     return {
         "feedback": feedback,
         "neuro_tip": neuro_tip,
