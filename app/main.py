@@ -17,6 +17,7 @@ from app.modules.consents.router import router as consents_router
 from app.modules.anamnesis.router import router as anamnesis_router
 from app.modules.dreams.router import router as dreams_router
 from app.modules.data_deletion_requests.router import router as data_deletion_router
+from app.modules.data_export.router import router as data_export_router
 from app.modules.push_tokens.router import router as push_tokens_router
 
 app = FastAPI(
@@ -77,6 +78,7 @@ app.include_router(dreams_router, prefix="/dreams", tags=["Dreams"])
 # LGPD: Solicitação de exclusão total (MVP manual)
 # Endpoint: POST /data-deletion-request
 app.include_router(data_deletion_router, tags=["LGPD"])
+app.include_router(data_export_router, tags=["LGPD"])
 
 # =========================
 # Health
