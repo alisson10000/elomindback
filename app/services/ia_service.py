@@ -2,6 +2,7 @@ import json
 import re
 import uuid
 import random
+import unicodedata
 from typing import Any, Dict, Optional
 
 from openai import OpenAI
@@ -10,6 +11,129 @@ from app.core.logger import get_logger
 
 logger = get_logger("ia_service")
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+DEFAULT_REFLECTION_THEMES = ["cansaço", "autocobrança", "sono"]
+
+_THEME_KEYWORDS = {
+    "ansiedade": [
+        "ansiedade", "ansioso", "ansiosa", "ansioso", "ansiosa",
+        "preocup", "apreens", "nervos", "taquic", "angust",
+    ],
+    "sono": [
+        "sono", "dormi", "dormir", "insonia", "insônia",
+        "acordei", "acordar", "cama", "descanso", "descansar",
+    ],
+    "cansaço": [
+        "cansaco", "cansaço", "exaust", "esgot", "fadig",
+        "sem energia", "sem disposição", "sobrecarreg",
+    ],
+    "trabalho": [
+        "trabalho", "empresa", "chefe", "reuniao", "reunião",
+        "prazo", "meta", "colega", "escritorio", "escritório", "profissional",
+    ],
+    "autocobrança": [
+        "autocobr", "me cobro", "me cobrar", "perfeccion", "culpa",
+        "fracasso", "falhei", "falhar", "erro", "errar", "insuficient",
+    ],
+    "tristeza": [
+        "triste", "tristeza", "desanim", "vazio", "abat",
+        "chor", "desmotivad", "para baixo",
+    ],
+    "raiva": [
+        "raiva", "irrit", "odio", "ódio", "bravo", "brava",
+        "furios", "furiosa", "explodi", "explodir",
+    ],
+    "relacionamento": [
+        "relacionamento", "parceir", "namor", "casamento", "famil",
+        "família", "amigo", "amizade", "mãe", "pai", "irmã", "irma", "irmão", "irmao",
+    ],
+}
+
+_NEURO_TIP_CATALOG = {
+    "ansiedade": [
+        "Fazer refeições em horários mais previsíveis e manter água por perto pode ajudar a reduzir picos de fome e desconforto intestinal ao longo do dia.",
+        "Incluir aveia, frutas e legumes no dia a dia favorece fibras para a microbiota, o que apoia a comunicação entre intestino e cérebro.",
+        "Diminuir o excesso de cafeína no fim do dia e reforçar a hidratação pode deixar o corpo menos sobrecarregado."
+    ],
+    "sono": [
+        "Evitar refeições muito pesadas perto de dormir e manter boa hidratação ao longo do dia pode favorecer um descanso mais confortável.",
+        "Uma refeição noturna mais leve, com alimentos de preparo simples, costuma ser mais gentil para o intestino antes de deitar.",
+        "Manter horários regulares para jantar e incluir fibras no dia a dia ajuda o intestino a funcionar com mais previsibilidade."
+    ],
+    "cansaço": [
+        "Ficar muitas horas sem comer pode aumentar a sensação de desgaste, então vale distribuir melhor água e refeições ao longo do dia.",
+        "Combinar carboidratos simples do dia a dia com fontes de fibras, como frutas e aveia, pode ajudar a evitar oscilações bruscas de energia.",
+        "Adicionar legumes, frutas e feijões à rotina alimentar apoia a microbiota e pode contribuir para uma sensação corporal mais estável."
+    ],
+    "trabalho": [
+        "Deixar uma garrafa de água visível durante o trabalho ajuda a lembrar da hidratação mesmo em dias mais corridos.",
+        "Ter um lanche simples com fruta, iogurte natural ou aveia pode evitar longos períodos em jejum em dias de agenda apertada.",
+        "Quando a rotina fica puxada, refeições mais previsíveis e com menos ultraprocessados costumam ser mais gentis com o intestino."
+    ],
+    "autocobrança": [
+        "Montar refeições simples e possíveis de manter no cotidiano costuma funcionar melhor do que tentar padrões alimentares difíceis de sustentar.",
+        "Beber água ao longo do dia e incluir alimentos in natura já é um cuidado consistente com o eixo intestino-cérebro.",
+        "Pequenos ajustes repetidos, como colocar fruta ou legumes em uma refeição por vez, já oferecem fibras úteis para a microbiota."
+    ],
+    "tristeza": [
+        "Manter alguma regularidade nas refeições e na hidratação pode ajudar o corpo a não entrar em ciclos longos de jejum.",
+        "Alimentos ricos em fibras, como frutas, legumes e aveia, ajudam a microbiota intestinal e sustentam hábitos mais estáveis.",
+        "Uma rotina alimentar simples, com menos ultraprocessados e mais água ao longo do dia, pode ser um cuidado gentil com o corpo."
+    ],
+    "raiva": [
+        "Em dias intensos, vale observar se café em excesso e longos períodos sem comer estão aumentando o desconforto físico e ajustar isso com mais água e pausas para se alimentar.",
+        "Refeições previsíveis, com alimentos simples e fontes de fibras, ajudam o intestino a manter um ritmo mais estável.",
+        "Levar água e um lanche simples para momentos corridos pode reduzir períodos longos de jejum e desconforto corporal."
+    ],
+    "relacionamento": [
+        "Quando a rotina emocional fica bagunçada, manter horários mínimos para comer e beber água já ajuda o corpo a não ficar em segundo plano.",
+        "Incluir frutas, legumes e aveia no cotidiano favorece a microbiota intestinal e sustenta hábitos alimentares mais consistentes.",
+        "Organizar refeições simples em casa, com menos ultraprocessados, pode deixar a alimentação mais previsível ao longo da semana."
+    ],
+}
+
+_ACTIVITY_CATALOG = {
+    "ansiedade": [
+        "Faça uma caminhada leve de 10 minutos em ritmo confortável, só para tirar o corpo da imobilidade.",
+        "Levante-se por 5 minutos, alongue ombros e pescoço devagar e beba um copo de água.",
+        "Saia um pouco da tela, caminhe dentro de casa ou do quarteirão e tome água antes de voltar à rotina."
+    ],
+    "sono": [
+        "Tente um alongamento leve no fim do dia, com movimentos simples de pescoço, ombros e pernas, sem forçar.",
+        "Faça uma caminhada curta no começo da noite ou no fim da tarde para ajudar o corpo a desacelerar com movimento leve.",
+        "Pegue alguns minutos de luz natural pela manhã e caminhe um pouco, mesmo que seja dentro de um ritmo bem leve."
+    ],
+    "cansaço": [
+        "Faça uma pausa curta para caminhar de 5 a 10 minutos e beber água antes de retomar o que estava fazendo.",
+        "Alongue costas, pernas e ombros por alguns minutos, com movimentos lentos e confortáveis.",
+        "Se o corpo estiver muito parado, levante, caminhe um pouco pela casa ou trabalho e depois tome água."
+    ],
+    "trabalho": [
+        "Programe uma pausa de tela para levantar, andar um pouco e alongar pescoço e ombros por 5 minutos.",
+        "Entre uma tarefa e outra, caminhe alguns minutos e beba água para quebrar o tempo sentado.",
+        "Se puder, tome um pouco de sol leve e faça uma volta curta antes de retomar o ritmo de trabalho."
+    ],
+    "autocobrança": [
+        "Escolha uma ação pequena e concreta, como caminhar 10 minutos em ritmo leve, sem transformar isso em meta rígida.",
+        "Faça um alongamento curto e confortável, focando só em movimentar o corpo por alguns minutos.",
+        "Levante-se, tome água e caminhe um pouco antes de voltar para as próximas demandas."
+    ],
+    "tristeza": [
+        "Tente sair um pouco da cama ou do sofá para caminhar em ritmo leve por alguns minutos e abrir espaço para movimento no corpo.",
+        "Tome um banho morno ou fresco e depois faça alguns alongamentos simples de ombros e pernas.",
+        "Se for possível, pegue alguns minutos de luz natural e caminhe devagar, sem se cobrar desempenho."
+    ],
+    "raiva": [
+        "Dê uma volta curta a pé, em ritmo constante, só para ajudar o corpo a descarregar um pouco da tensão física.",
+        "Faça movimentos simples de ombros, braços e pernas por alguns minutos, sem pressa e sem forçar.",
+        "Saia da tela, beba água e caminhe um pouco antes de continuar a conversa ou tarefa."
+    ],
+    "relacionamento": [
+        "Faça uma caminhada leve de 10 minutos para sair do ambiente da conversa e movimentar o corpo.",
+        "Tome um banho e depois alongue ombros, costas e pernas por alguns minutos, com calma.",
+        "Se puder, pegue um pouco de sol leve e caminhe devagar para mudar o ritmo corporal."
+    ],
+}
 
 # Indícios de que a frase é realmente sobre alimentação / intestino-cérebro
 _NEURO_KEYWORDS = [
@@ -37,6 +161,56 @@ _FORBIDDEN_ACTIVITY_HINTS = [
     "journaling", "diário", "diario", "escrev", "anot",
     "medit", "mindful", "respir", "terapia", "autocompaix", "relax"
 ]
+
+
+def _normalize_for_match(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text or "")
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    return ascii_text.lower()
+
+
+def _pick_unique_candidates(candidates: list[str], *, count: int = 3) -> list[str]:
+    unique_candidates = list(dict.fromkeys(candidates))
+    if not unique_candidates:
+        return []
+    if len(unique_candidates) <= count:
+        return unique_candidates[:count]
+    return random.sample(unique_candidates, count)
+
+
+def detect_reflection_themes(text: str) -> list[str]:
+    normalized_text = _normalize_for_match(text)
+    detected: list[str] = []
+
+    for theme, keywords in _THEME_KEYWORDS.items():
+        if any(keyword in normalized_text for keyword in keywords):
+            detected.append(theme)
+
+    return detected or DEFAULT_REFLECTION_THEMES.copy()
+
+
+def get_neuro_tip_candidates(themes: list[str]) -> list[str]:
+    pool: list[str] = []
+    for theme in themes:
+        pool.extend(_NEURO_TIP_CATALOG.get(theme, []))
+
+    if len(pool) < 3:
+        for theme in DEFAULT_REFLECTION_THEMES:
+            pool.extend(_NEURO_TIP_CATALOG.get(theme, []))
+
+    return _pick_unique_candidates(pool, count=3)
+
+
+def get_activity_candidates(themes: list[str]) -> list[str]:
+    pool: list[str] = []
+    for theme in themes:
+        pool.extend(_ACTIVITY_CATALOG.get(theme, []))
+
+    if len(pool) < 3:
+        for theme in DEFAULT_REFLECTION_THEMES:
+            pool.extend(_ACTIVITY_CATALOG.get(theme, []))
+
+    return _pick_unique_candidates(pool, count=3)
 
 
 def _strip_code_fences(text: str) -> str:
@@ -89,7 +263,7 @@ def _is_valid_neuro_tip(text: Optional[str]) -> bool:
     """Valida se a dica parece ser de neuro nutrição e não de psicologia."""
     if not text:
         return False
-    t = text.strip().lower()
+    t = _normalize_for_match(text.strip())
     if not t:
         return False
 
@@ -103,7 +277,7 @@ def _is_valid_activity(text: Optional[str]) -> bool:
     """Valida se a activity é prática e não escapa para journaling/meditação/respiração."""
     if not text:
         return False
-    t = text.strip().lower()
+    t = _normalize_for_match(text.strip())
     if not t:
         return False
 
@@ -114,14 +288,13 @@ def _is_valid_activity(text: Optional[str]) -> bool:
 
 
 def _fallback_neuro_tip() -> str:
-    return (
-        "Manter boa hidratação e incluir fibras (frutas, legumes e aveia) ajuda o intestino, "
-        "o que pode apoiar o bem-estar do cérebro."
-    )
+    candidates = get_neuro_tip_candidates(DEFAULT_REFLECTION_THEMES)
+    return random.choice(candidates)
 
 
 def _fallback_activity() -> str:
-    return "Faça uma caminhada leve de 10 a 15 minutos, em um ritmo confortável, apenas para movimentar o corpo."
+    candidates = get_activity_candidates(DEFAULT_REFLECTION_THEMES)
+    return random.choice(candidates)
 
 
 def _pick_style() -> str:
@@ -169,7 +342,14 @@ def generate_feedback_structured(*, reflection_text: str, anamnesis_summary: Opt
         }
 
     style = _pick_style()
+    themes = detect_reflection_themes(reflection_text)
+    neuro_tip_candidates = get_neuro_tip_candidates(themes)
+    activity_candidates = get_activity_candidates(themes)
     logger.info(f"[{request_id}] STYLE={style}")
+    logger.info(
+        f"[{request_id}] CONTEXT themes={themes} "
+        f"neuro_candidates={len(neuro_tip_candidates)} activity_candidates={len(activity_candidates)}"
+    )
 
     system_prompt = (
         "Você é um assistente de apoio terapêutico.\n"
@@ -207,6 +387,19 @@ Regras obrigatórias do campo neuro_tip:
 - Não prescreva dieta, não prometa cura, não indique suplemento/medicamento.
 - Seja simples e aplicável no dia a dia.
 
+TEMAS DETECTADOS DA REFLEXÃO:
+{", ".join(themes)}
+
+OPÇÕES INTERNAS PARA BASEAR O CAMPO "neuro_tip" (adapte sem copiar de forma mecânica):
+- {neuro_tip_candidates[0]}
+- {neuro_tip_candidates[1]}
+- {neuro_tip_candidates[2]}
+
+OPÇÕES INTERNAS PARA BASEAR O CAMPO "activity" (adapte sem copiar de forma mecânica):
+- {activity_candidates[0]}
+- {activity_candidates[1]}
+- {activity_candidates[2]}
+
 ANAMNESE DO CLIENTE (contexto; não repetir literalmente):
 {anamnesis_summary if anamnesis_summary else "(sem anamnese cadastrada)"}
 
@@ -234,19 +427,23 @@ Reflexão do cliente:
         }
 
     content = (response.choices[0].message.content or "").strip()
-    logger.info(f"[{request_id}] RAW_RESPONSE={content}")
 
     data = _safe_json_loads(content)
     if not isinstance(data, dict):
-        logger.info(f"[{request_id}] JSON_PARSE_FAILED -> fallback_structured")
+        logger.info(
+            f"[{request_id}] JSON_PARSE_FAILED response_chars={len(content)} -> fallback_structured"
+        )
         return {
             "feedback": _normalize_one_line(content, max_chars=1200)
             or "Não foi possível gerar a devolutiva no formato esperado.",
-            "neuro_tip": _fallback_neuro_tip(),
-            "activity": _fallback_activity(),
+            "neuro_tip": random.choice(neuro_tip_candidates),
+            "activity": random.choice(activity_candidates),
         }
 
-    logger.info(f"[{request_id}] PARSED_JSON keys={list(data.keys())}")
+    logger.info(
+        f"[{request_id}] RESPONSE_METADATA response_chars={len(content)} "
+        f"json_keys={list(data.keys())}"
+    )
 
     feedback = _normalize_one_line(data.get("feedback"), max_chars=1200)
     neuro_tip = _normalize_one_line(data.get("neuro_tip"), max_chars=240)
@@ -258,11 +455,11 @@ Reflexão do cliente:
 
     if not _is_valid_neuro_tip(neuro_tip):
         logger.info(f"[{request_id}] neuro_tip invalid -> fallback")
-        neuro_tip = _fallback_neuro_tip()
+        neuro_tip = random.choice(neuro_tip_candidates)
 
     if not _is_valid_activity(activity):
         logger.info(f"[{request_id}] activity invalid -> fallback")
-        activity = _fallback_activity()
+        activity = random.choice(activity_candidates)
 
     logger.info(f"[{request_id}] DONE ok")
     return {
