@@ -17,6 +17,7 @@ from app.modules.consents.router import router as consents_router
 from app.modules.anamnesis.router import router as anamnesis_router
 from app.modules.dreams.router import router as dreams_router
 from app.modules.data_deletion_requests.router import router as data_deletion_router
+from app.modules.data_deletion_requests.service import ensure_data_deletion_request_schema
 from app.modules.data_export.router import router as data_export_router
 from app.modules.push_tokens.router import router as push_tokens_router
 from app.modules.therapist_clients.service import ensure_therapist_client_retention_schema
@@ -48,6 +49,7 @@ app.add_middleware(SlowAPIMiddleware)
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    ensure_data_deletion_request_schema(engine)
     ensure_therapist_client_retention_schema(engine)
     print("✅ Banco de dados inicializado")
 

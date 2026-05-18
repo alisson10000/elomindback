@@ -22,6 +22,7 @@ class DataDeletionRequest(Base):
     client_name = Column(String(255), nullable=True)
 
     requested_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    deadline_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
     # pending | completed | rejected | canceled (você decide no MVP)
     status = Column(String(30), nullable=False, server_default="pending")
