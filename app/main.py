@@ -19,6 +19,7 @@ from app.modules.dreams.router import router as dreams_router
 from app.modules.data_deletion_requests.router import router as data_deletion_router
 from app.modules.data_export.router import router as data_export_router
 from app.modules.push_tokens.router import router as push_tokens_router
+from app.modules.therapist_clients.service import ensure_therapist_client_retention_schema
 
 app = FastAPI(
     title="EloMind API",
@@ -47,6 +48,7 @@ app.add_middleware(SlowAPIMiddleware)
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    ensure_therapist_client_retention_schema(engine)
     print("✅ Banco de dados inicializado")
 
 # =========================
