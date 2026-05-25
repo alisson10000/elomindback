@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 import bcrypt
 import jwt
 from app.config import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_MINUTES
@@ -12,7 +13,12 @@ def verify_password(raw: str, hashed: str) -> bool:
 def create_access_token(subject: str) -> str:
     now = datetime.now(timezone.utc)
     exp = now + timedelta(minutes=JWT_EXPIRE_MINUTES)
-    payload = {"sub": subject, "iat": int(now.timestamp()), "exp": int(exp.timestamp())}
+    payload = {
+        "sub": subject,
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+        "jti": str(uuid4()),
+    }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def decode_token(token: str) -> dict:

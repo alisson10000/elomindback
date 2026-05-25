@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 
 from app.core.security import decode_token
 from app.db.session import get_db
+from app.modules.audit.service import log_action
+from app.modules.auth.jwt_service import is_token_revoked, jti_prefix
 from app.modules.users.service import get_user_by_email, get_user_by_id
 
 bearer = HTTPBearer(auto_error=False)
@@ -31,6 +33,24 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
         )
+
+    token_jti = payload.get("jti")
+    if token_jti:
+        if is_token_revoked(db, str(token_jti)):
+            # Segurança: nunca logar JWT completo nem payload completo.
+            log_action(
+                db,
+                action="TOKEN_REJECTED_REVOKED",
+                resource_type="auth",
+                details={"jti_prefix": jti_prefix(str(token_jti))},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token inválido",
+            )
+    else:
+        # TODO(security): remover compatibilidade com tokens sem `jti` após migração dos clientes.
+        pass
 
     user = None
     if str(subject).isdigit():

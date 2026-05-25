@@ -10,6 +10,7 @@ from app.modules.invitations.model import Invitation  # noqa: F401
 from app.modules.therapist_clients.model import TherapistClient  # noqa: F401
 from app.modules.consents.model import Consent  # noqa: F401
 from app.modules.auth.password_reset.model import PasswordResetToken  # noqa: F401
+from app.modules.auth.model import RevokedToken  # noqa: F401
 from app.modules.anamnesis.model import Anamnesis  # noqa: F401
 from app.modules.dreams.model import Dream  # noqa: F401
 from app.modules.data_deletion_requests.model import DataDeletionRequest  # noqa: F401

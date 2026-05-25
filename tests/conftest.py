@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
+
+# Garante que `import app` funcione mesmo quando o pytest ajustar o CWD/sys.path.
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
